@@ -1,10 +1,27 @@
-mobile_admin
-.next
-node_modules
-firebase-debug.log
+# Flutter mobile app — not part of web deployment
+mobile_admin/
+mobile_admin/**
+
+# Next.js build cache (Vercel regenerates this)
+.next/
+
+# Dependencies
+node_modules/
+
+# Logs
 *.log
+firebase-debug.log
+
+# Build / dist
+dist/
+coverage/
+
+# Flutter & Android artifacts (belt-and-suspenders)
 *.apk
 *.aab
-coverage
-dist
-build
+*.dex
+*.so
+*.aar
+
+# Firebase admin SDK private key — use env vars instead
+hajzy-e26e3-firebase-adminsdk-fbsvc-9af60a6626.json
