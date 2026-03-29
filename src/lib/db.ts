@@ -1,16 +1,20 @@
 import {
+  addDoc,
   collection,
   doc,
+  onSnapshot,
   query,
   where,
   orderBy,
   getDocs,
   writeBatch,
   increment,
+  serverTimestamp,
   Timestamp,
+  type Unsubscribe,
 } from "firebase/firestore";
-import { db } from "@/lib/firebase";
-import { COLLECTIONS } from "@/lib/constants";
+import { getFirebaseDb } from "@/lib/firebase";
+import { COLLECTIONS, type UserRole } from "@/lib/constants";
 
 // ============================================================
 // Firestore Document Schemas (TypeScript Interfaces)
@@ -51,11 +55,33 @@ export interface OrderDoc {
   charge: number; // Amount charged from user balance
   providerOrderId?: string; // ID returned by the SMM provider
   providerCharge?: number; // Actual cost from provider (hidden from user)
+  supportsRefill?: boolean;
+  refillRequestId?: string;
+  refillStatus?: "requested" | "processing" | "completed" | "failed";
+  refundState?: "none" | "awaiting_provider_refund" | "refunded_to_user";
+  providerLastStatus?: string;
+  providerRefundConfirmedAt?: Timestamp;
+  refundedToUserAt?: Timestamp;
+  refundedAmount?: number;
+  completedAt?: Timestamp;
+  refillWindowHours?: number | null;
+  refillAvailableAt?: Timestamp;
   status: OrderStatus;
   startCount?: number;
   remains?: number;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
+  refillRequestedAt?: Timestamp;
+  refillUpdatedAt?: Timestamp;
+}
+
+export interface UserDoc {
+  uid: string;
+  email: string;
+  displayName: string;
+  balance: number;
+  role: UserRole;
+  createdAt?: Timestamp;
 }
 
 // ============================================================
@@ -63,11 +89,25 @@ export interface OrderDoc {
 // ============================================================
 
 /**
+ * Fetch all deposits, newest first.
+ */
+export async function getAllDeposits(): Promise<DepositDoc[]> {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, COLLECTIONS.deposits),
+    orderBy("createdAt", "desc")
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as DepositDoc));
+}
+
+/**
  * Fetch all deposits with a given status (default: pending).
  */
 export async function getDeposits(
   status: DepositStatus = "pending"
 ): Promise<DepositDoc[]> {
+  const db = getFirebaseDb();
   const q = query(
     collection(db, COLLECTIONS.deposits),
     where("status", "==", status),
@@ -81,6 +121,7 @@ export async function getDeposits(
  * Fetch all deposits for a specific user.
  */
 export async function getUserDeposits(userId: string): Promise<DepositDoc[]> {
+  const db = getFirebaseDb();
   const q = query(
     collection(db, COLLECTIONS.deposits),
     where("userId", "==", userId),
@@ -88,6 +129,52 @@ export async function getUserDeposits(userId: string): Promise<DepositDoc[]> {
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as DepositDoc));
+}
+
+/**
+ * Subscribe to deposits for a specific user, newest first.
+ */
+export function subscribeUserDeposits(
+  userId: string,
+  onChange: (deposits: DepositDoc[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, COLLECTIONS.deposits),
+    where("userId", "==", userId),
+    orderBy("createdAt", "desc")
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() } as DepositDoc)));
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
+}
+
+/**
+ * Create a new user deposit request.
+ */
+export async function createDeposit(input: {
+  userId: string;
+  userEmail: string;
+  amount: number;
+  utr: string;
+}): Promise<void> {
+  const db = getFirebaseDb();
+  await addDoc(collection(db, COLLECTIONS.deposits), {
+    userId: input.userId,
+    userEmail: input.userEmail,
+    amount: input.amount,
+    utr: input.utr,
+    status: "pending" as DepositStatus,
+    createdAt: serverTimestamp(),
+  });
 }
 
 // ============================================================
@@ -104,6 +191,7 @@ export async function approveDeposit(
   deposit: DepositDoc,
   adminUid: string
 ): Promise<void> {
+  const db = getFirebaseDb();
   const batch = writeBatch(db);
 
   // 1. Update deposit document
@@ -131,6 +219,7 @@ export async function rejectDeposit(
   adminUid: string,
   notes?: string
 ): Promise<void> {
+  const db = getFirebaseDb();
   const batch = writeBatch(db);
 
   const depositRef = doc(db, COLLECTIONS.deposits, depositId);
@@ -149,9 +238,29 @@ export async function rejectDeposit(
 // ============================================================
 
 /**
+ * Fetch all users, newest first.
+ */
+export async function getAllUsers(): Promise<UserDoc[]> {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, COLLECTIONS.users),
+    orderBy("createdAt", "desc")
+  );
+  const snap = await getDocs(q);
+  return snap.docs.map(
+    (d) =>
+      ({
+        uid: d.id,
+        ...d.data(),
+      }) as UserDoc
+  );
+}
+
+/**
  * Fetch orders for a specific user, newest first.
  */
 export async function getUserOrders(userId: string): Promise<OrderDoc[]> {
+  const db = getFirebaseDb();
   const q = query(
     collection(db, COLLECTIONS.orders),
     where("userId", "==", userId),
@@ -165,6 +274,7 @@ export async function getUserOrders(userId: string): Promise<OrderDoc[]> {
  * Fetch all orders (admin).
  */
 export async function getAllOrders(): Promise<OrderDoc[]> {
+  const db = getFirebaseDb();
   const q = query(
     collection(db, COLLECTIONS.orders),
     orderBy("createdAt", "desc")

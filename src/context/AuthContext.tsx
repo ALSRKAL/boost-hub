@@ -24,7 +24,11 @@ import {
   onSnapshot,
   serverTimestamp,
 } from "firebase/firestore";
-import { auth, db, isFirebaseConfigured } from "@/lib/firebase";
+import {
+  getFirebaseAuth,
+  getFirebaseDb,
+  isFirebaseConfigured,
+} from "@/lib/firebase";
 import { COLLECTIONS, USER_ROLES, type UserRole } from "@/lib/constants";
 
 // ============================================================
@@ -69,6 +73,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   // Create or fetch user profile in Firestore
   const ensureUserProfile = useCallback(async (firebaseUser: User) => {
     try {
+      const db = getFirebaseDb();
       const userRef = doc(db, COLLECTIONS.users, firebaseUser.uid);
       const userSnap = await getDoc(userRef);
 
@@ -95,6 +100,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
 
     let unsubProfile: (() => void) | null = null;
+    const auth = getFirebaseAuth();
+    const db = getFirebaseDb();
 
     const unsubAuth = onAuthStateChanged(auth, async (firebaseUser) => {
       setUser(firebaseUser);
@@ -135,6 +142,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signUp = useCallback(async (email: string, password: string) => {
     try {
+      const auth = getFirebaseAuth();
       setError(null);
       setLoading(true);
       await createUserWithEmailAndPassword(auth, email, password);
@@ -148,6 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signIn = useCallback(async (email: string, password: string) => {
     try {
+      const auth = getFirebaseAuth();
       setError(null);
       setLoading(true);
       await signInWithEmailAndPassword(auth, email, password);
@@ -161,6 +170,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const signInWithGoogle = useCallback(async () => {
     try {
+      const auth = getFirebaseAuth();
       setError(null);
       setLoading(true);
       await signInWithPopup(auth, googleProvider);
@@ -175,6 +185,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const logout = useCallback(async () => {
     try {
+      const auth = getFirebaseAuth();
       setError(null);
       await firebaseSignOut(auth);
     } catch (err: unknown) {

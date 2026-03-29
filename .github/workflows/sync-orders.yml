@@ -1,0 +1,54 @@
+name: Sync Orders
+
+on:
+  schedule:
+    - cron: "*/15 * * * *"
+  workflow_dispatch:
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Trigger order sync
+        env:
+          SYNC_ORDERS_URL: https://smm-ten-coral.vercel.app/api/cron/sync-orders
+          CRON_SECRET: ${{ secrets.CRON_SECRET }}
+        run: |
+          if [ -z "$CRON_SECRET" ]; then
+            echo "CRON_SECRET is not set in GitHub Actions secrets."
+            exit 1
+          fi
+
+          MAX_RETRIES=3
+          RETRY_DELAY=10
+          attempt=1
+
+          while [ "$attempt" -le "$MAX_RETRIES" ]; do
+            echo "Attempt $attempt of $MAX_RETRIES..."
+
+            response=$(curl -sS -w "\n%{http_code}" \
+              --connect-timeout 15 \
+              --max-time 60 \
+              -H "Authorization: Bearer $CRON_SECRET" \
+              -H "Accept: application/json" \
+              "$SYNC_ORDERS_URL" 2>&1) || true
+
+            body=$(printf '%s\n' "$response" | sed '$d')
+            status=$(printf '%s\n' "$response" | tail -n 1)
+
+            echo "$body"
+
+            if echo "$status" | grep -qE '^[0-9]+$' && [ "$status" -ge 200 ] && [ "$status" -lt 300 ]; then
+              echo "Sync completed successfully (HTTP $status)."
+              exit 0
+            fi
+
+            echo "Sync failed (HTTP $status). Retrying in ${RETRY_DELAY}s..."
+            attempt=$((attempt + 1))
+            sleep "$RETRY_DELAY"
+          done
+
+          echo "All $MAX_RETRIES attempts failed."
+          exit 1

@@ -18,7 +18,7 @@ export default function Header() {
         <div className="flex items-center gap-3 ml-auto">
           {/* Balance Card */}
           <Link
-            href="/dashboard/add-funds"
+            href="/add-funds"
             className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[var(--color-accent)]/10 to-[var(--color-accent-hover)]/10 border border-[var(--color-accent)]/20 hover:border-[var(--color-accent)]/40 transition-all duration-200 group"
           >
             <span className="text-lg">💰</span>

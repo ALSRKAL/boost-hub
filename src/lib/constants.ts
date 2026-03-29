@@ -27,15 +27,15 @@ export interface NavItem {
 
 export const NAV_ITEMS: NavItem[] = [
   { label: "Dashboard", href: "/dashboard", icon: "📊" },
-  { label: "New Order", href: "/dashboard/new-order", icon: "🛒" },
-  { label: "Services", href: "/dashboard/services", icon: "📋" },
-  { label: "Orders", href: "/dashboard/orders", icon: "📦" },
-  { label: "Add Funds", href: "/dashboard/add-funds", icon: "💰" },
+  { label: "New Order", href: "/new-order", icon: "🛒" },
+  { label: "Services", href: "/services", icon: "📋" },
+  { label: "Orders", href: "/orders", icon: "📦" },
+  { label: "Add Funds", href: "/add-funds", icon: "💰" },
 ];
 
 export const ADMIN_NAV_ITEMS: NavItem[] = [
-  { label: "Deposits", href: "/dashboard/admin/deposits", icon: "🏦", adminOnly: true },
-  { label: "Users", href: "/dashboard/admin/users", icon: "👥", adminOnly: true },
+  { label: "Deposits", href: "/admin/deposits", icon: "🏦", adminOnly: true },
+  { label: "Users", href: "/admin/users", icon: "👥", adminOnly: true },
 ];
 
 // ============================================================

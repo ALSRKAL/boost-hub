@@ -1,0 +1,112 @@
+[debug] [2026-03-29T07:49:23.083Z] ----------------------------------------------------------------------
+[debug] [2026-03-29T07:49:23.086Z] Command:       /usr/bin/node /usr/bin/firebase deploy --only firestore:indexes
+[debug] [2026-03-29T07:49:23.087Z] CLI Version:   14.22.0
+[debug] [2026-03-29T07:49:23.087Z] Platform:      linux
+[debug] [2026-03-29T07:49:23.087Z] Node Version:  v20.20.1
+[debug] [2026-03-29T07:49:23.087Z] Time:          Sun Mar 29 2026 13:19:23 GMT+0530 (India Standard Time)
+[debug] [2026-03-29T07:49:23.087Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-03-29T07:49:23.435Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-03-29T07:49:23.437Z] > authorizing via signed-in user (hajzy.ph@gmail.com)
+[debug] [2026-03-29T07:49:23.437Z] [iam] checking project hajzy-e26e3 for permissions ["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]
+[debug] [2026-03-29T07:49:23.439Z] Checked if tokens are valid: false, expires at: 1774767335305
+[debug] [2026-03-29T07:49:23.439Z] Checked if tokens are valid: false, expires at: 1774767335305
+[debug] [2026-03-29T07:49:23.440Z] > refreshing access token with scopes: []
+[debug] [2026-03-29T07:49:23.443Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-03-29T07:49:23.443Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-03-29T07:49:23.753Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-03-29T07:49:23.754Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-03-29T07:49:23.769Z] >>> [apiv2][query] POST https://cloudresourcemanager.googleapis.com/v1/projects/hajzy-e26e3:testIamPermissions [none]
+[debug] [2026-03-29T07:49:23.770Z] >>> [apiv2][(partial)header] POST https://cloudresourcemanager.googleapis.com/v1/projects/hajzy-e26e3:testIamPermissions x-goog-quota-user=projects/hajzy-e26e3
+[debug] [2026-03-29T07:49:23.770Z] >>> [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/hajzy-e26e3:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[debug] [2026-03-29T07:49:25.592Z] <<< [apiv2][status] POST https://cloudresourcemanager.googleapis.com/v1/projects/hajzy-e26e3:testIamPermissions 200
+[debug] [2026-03-29T07:49:25.592Z] <<< [apiv2][body] POST https://cloudresourcemanager.googleapis.com/v1/projects/hajzy-e26e3:testIamPermissions {"permissions":["datastore.indexes.create","datastore.indexes.delete","datastore.indexes.list","datastore.indexes.update","firebase.projects.get"]}
+[info] 
+[info] === Deploying to 'hajzy-e26e3'...
+[info] 
+[info] i  deploying firestore 
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[info] i  firestore: ensuring required API firestore.googleapis.com is enabled... 
+[debug] [2026-03-29T07:49:25.598Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:25.598Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:25.598Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default) [none]
+[debug] [2026-03-29T07:49:27.382Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default) 200
+[debug] [2026-03-29T07:49:27.382Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default) {"name":"projects/hajzy-e26e3/databases/(default)","uid":"36c72dbf-ff77-46fb-a112-6c477ebe980f","createTime":"2026-03-29T06:08:40.513351Z","updateTime":"2026-03-29T06:08:40.513351Z","locationId":"nam5","type":"FIRESTORE_NATIVE","concurrencyMode":"PESSIMISTIC","versionRetentionPeriod":"3600s","earliestVersionTime":"2026-03-29T06:49:27.231397Z","appEngineIntegrationMode":"DISABLED","keyPrefix":"s","pointInTimeRecoveryEnablement":"POINT_IN_TIME_RECOVERY_DISABLED","deleteProtectionState":"DELETE_PROTECTION_DISABLED","databaseEdition":"STANDARD","freeTier":true,"realtimeUpdatesMode":"REALTIME_UPDATES_MODE_ENABLED","etag":"IN3n3snPxJMDMNH9xN7DxJMD"}
+[info] i  firestore: reading indexes from firestore.indexes.json... 
+[info] i  cloud.firestore: checking firestore.rules for compilation errors... 
+[debug] [2026-03-29T07:49:27.385Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:27.385Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:27.385Z] >>> [apiv2][query] POST https://firebaserules.googleapis.com/v1/projects/hajzy-e26e3:test [none]
+[debug] [2026-03-29T07:49:27.385Z] >>> [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/hajzy-e26e3:test [omitted]
+[debug] [2026-03-29T07:49:28.043Z] <<< [apiv2][status] POST https://firebaserules.googleapis.com/v1/projects/hajzy-e26e3:test 200
+[debug] [2026-03-29T07:49:28.043Z] <<< [apiv2][body] POST https://firebaserules.googleapis.com/v1/projects/hajzy-e26e3:test {}
+[info] ✔  cloud.firestore: rules file firestore.rules compiled successfully 
+[info] i  firestore: deploying indexes... 
+[debug] [2026-03-29T07:49:28.046Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:28.046Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:28.046Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/-/indexes [none]
+[debug] [2026-03-29T07:49:28.394Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/-/indexes 200
+[debug] [2026-03-29T07:49:28.394Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/-/indexes {}
+[debug] [2026-03-29T07:49:28.395Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:28.395Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:28.395Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* [none]
+[debug] [2026-03-29T07:49:28.798Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* 200
+[debug] [2026-03-29T07:49:28.798Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/-/fields?filter=indexConfig.usesAncestorConfig=false OR ttlConfig:* {"fields":[{"name":"projects/hajzy-e26e3/databases/(default)/collectionGroups/__default__/fields/*","indexConfig":{"indexes":[{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","order":"ASCENDING"}],"state":"READY"},{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","order":"DESCENDING"}],"state":"READY"},{"queryScope":"COLLECTION","fields":[{"fieldPath":"*","arrayConfig":"CONTAINS"}],"state":"READY"}]}}]}
+[debug] [2026-03-29T07:49:28.799Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:28.799Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:28.800Z] >>> [apiv2][query] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default) [none]
+[debug] [2026-03-29T07:49:29.219Z] <<< [apiv2][status] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default) 200
+[debug] [2026-03-29T07:49:29.219Z] <<< [apiv2][body] GET https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default) {"name":"projects/hajzy-e26e3/databases/(default)","uid":"36c72dbf-ff77-46fb-a112-6c477ebe980f","createTime":"2026-03-29T06:08:40.513351Z","updateTime":"2026-03-29T06:08:40.513351Z","locationId":"nam5","type":"FIRESTORE_NATIVE","concurrencyMode":"PESSIMISTIC","versionRetentionPeriod":"3600s","earliestVersionTime":"2026-03-29T06:49:28.990294Z","appEngineIntegrationMode":"DISABLED","keyPrefix":"s","pointInTimeRecoveryEnablement":"POINT_IN_TIME_RECOVERY_DISABLED","deleteProtectionState":"DELETE_PROTECTION_DISABLED","databaseEdition":"STANDARD","freeTier":true,"realtimeUpdatesMode":"REALTIME_UPDATES_MODE_ENABLED","etag":"IPSYysrPxJMDMNH9xN7DxJMD"}
+[debug] [2026-03-29T07:49:29.220Z] Creating new index: {"collectionGroup":"orders","queryScope":"COLLECTION","fields":[{"fieldPath":"userId","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"}]}
+[debug] [2026-03-29T07:49:29.220Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:29.220Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:29.220Z] >>> [apiv2][query] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/orders/indexes [none]
+[debug] [2026-03-29T07:49:29.220Z] >>> [apiv2][body] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/orders/indexes {"fields":[{"fieldPath":"userId","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"}],"queryScope":"COLLECTION"}
+[debug] [2026-03-29T07:49:29.928Z] <<< [apiv2][status] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/orders/indexes 200
+[debug] [2026-03-29T07:49:29.928Z] <<< [apiv2][body] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/orders/indexes {"name":"projects/hajzy-e26e3/databases/(default)/operations/S0U0aFhqT2dBQ0lDDCoDIDkzNzBiOWEyZGUzNS02YzNiLThiMzQtMzQ3Yy0yZTI3NjI1NSQac2VuaWxlcGlwCQpBEg","metadata":{"@type":"type.googleapis.com/google.firestore.admin.v1.IndexOperationMetadata","startTime":"2026-03-29T07:49:29.609564Z","index":"projects/hajzy-e26e3/databases/(default)/collectionGroups/orders/indexes/CICAgOjXh4EK","state":"INITIALIZING"}}
+[debug] [2026-03-29T07:49:29.928Z] Creating new index: {"collectionGroup":"deposits","queryScope":"COLLECTION","fields":[{"fieldPath":"userId","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"}]}
+[debug] [2026-03-29T07:49:29.928Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:29.928Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:29.929Z] >>> [apiv2][query] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/deposits/indexes [none]
+[debug] [2026-03-29T07:49:29.929Z] >>> [apiv2][body] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/deposits/indexes {"fields":[{"fieldPath":"userId","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"}],"queryScope":"COLLECTION"}
+[debug] [2026-03-29T07:49:30.442Z] <<< [apiv2][status] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/deposits/indexes 200
+[debug] [2026-03-29T07:49:30.442Z] <<< [apiv2][body] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/deposits/indexes {"name":"projects/hajzy-e26e3/databases/(default)/operations/S01vcFVpSmdBQ0lDDCoDIDkxMjcyYTI3YzYxMC1iZjhiLTk5YzQtNDE2ZS0xMDMwODM1MCQac2VuaWxlcGlwCQpBEg","metadata":{"@type":"type.googleapis.com/google.firestore.admin.v1.IndexOperationMetadata","startTime":"2026-03-29T07:49:30.232593Z","index":"projects/hajzy-e26e3/databases/(default)/collectionGroups/deposits/indexes/CICAgJiUpoMK","state":"INITIALIZING"}}
+[debug] [2026-03-29T07:49:30.443Z] Creating new index: {"collectionGroup":"deposits","queryScope":"COLLECTION","fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"}]}
+[debug] [2026-03-29T07:49:30.443Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:30.443Z] Checked if tokens are valid: true, expires at: 1774774162754
+[debug] [2026-03-29T07:49:30.444Z] >>> [apiv2][query] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/deposits/indexes [none]
+[debug] [2026-03-29T07:49:30.444Z] >>> [apiv2][body] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/deposits/indexes {"fields":[{"fieldPath":"status","order":"ASCENDING"},{"fieldPath":"createdAt","order":"DESCENDING"}],"queryScope":"COLLECTION"}
+[debug] [2026-03-29T07:49:30.925Z] <<< [apiv2][status] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/deposits/indexes 200
+[debug] [2026-03-29T07:49:30.926Z] <<< [apiv2][body] POST https://firestore.googleapis.com/v1/projects/hajzy-e26e3/databases/(default)/collectionGroups/deposits/indexes {"name":"projects/hajzy-e26e3/databases/(default)/operations/S0E0MW1pSmdBQ0lDDCoDIDUwNTU1MDZhYmFiYi0zNTA4LTg5ODQtNDk4Mi05M2ZhNmM2YiQac2VuaWxlcGlwCQpBEg","metadata":{"@type":"type.googleapis.com/google.firestore.admin.v1.IndexOperationMetadata","startTime":"2026-03-29T07:49:30.696328Z","index":"projects/hajzy-e26e3/databases/(default)/collectionGroups/deposits/indexes/CICAgJim14AK","state":"INITIALIZING"}}
+[info] ✔  firestore: deployed indexes in firestore.indexes.json successfully for (default) database 
+[info] 
+[info] ✔  Deploy complete! 
+[info] 
+[info] Project Console: https://console.firebase.google.com/project/hajzy-e26e3/overview
+[debug] [2026-03-29T09:37:50.528Z] ----------------------------------------------------------------------
+[debug] [2026-03-29T09:37:50.530Z] Command:       /usr/bin/node /usr/bin/firebase projects:list --json
+[debug] [2026-03-29T09:37:50.531Z] CLI Version:   14.22.0
+[debug] [2026-03-29T09:37:50.531Z] Platform:      linux
+[debug] [2026-03-29T09:37:50.531Z] Node Version:  v20.20.1
+[debug] [2026-03-29T09:37:50.531Z] Time:          Sun Mar 29 2026 15:07:50 GMT+0530 (India Standard Time)
+[debug] [2026-03-29T09:37:50.532Z] ----------------------------------------------------------------------
+[debug] 
+[debug] [2026-03-29T09:37:50.801Z] > command requires scopes: ["email","openid","https://www.googleapis.com/auth/cloudplatformprojects.readonly","https://www.googleapis.com/auth/firebase","https://www.googleapis.com/auth/cloud-platform"]
+[debug] [2026-03-29T09:37:50.801Z] > authorizing via signed-in user (hajzy.ph@gmail.com)
+[debug] [2026-03-29T09:37:50.805Z] Checked if tokens are valid: false, expires at: 1774774162754
+[debug] [2026-03-29T09:37:50.805Z] Checked if tokens are valid: false, expires at: 1774774162754
+[debug] [2026-03-29T09:37:50.806Z] > refreshing access token with scopes: []
+[debug] [2026-03-29T09:37:50.807Z] >>> [apiv2][query] POST https://www.googleapis.com/oauth2/v3/token [none]
+[debug] [2026-03-29T09:37:50.808Z] >>> [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-03-29T09:37:51.185Z] <<< [apiv2][status] POST https://www.googleapis.com/oauth2/v3/token 200
+[debug] [2026-03-29T09:37:51.185Z] <<< [apiv2][body] POST https://www.googleapis.com/oauth2/v3/token [omitted]
+[debug] [2026-03-29T09:37:51.200Z] >>> [apiv2][query] GET https://firebase.googleapis.com/v1beta1/projects pageSize=1000
+[debug] [2026-03-29T09:37:52.274Z] <<< [apiv2][status] GET https://firebase.googleapis.com/v1beta1/projects 200
+[debug] [2026-03-29T09:37:52.274Z] <<< [apiv2][body] GET https://firebase.googleapis.com/v1beta1/projects [omitted]
+[info] ┌──────────────────────┬───────────────────────┬────────────────┬──────────────────────┐
+│ Project Display Name │ Project ID            │ Project Number │ Resource Location ID │
+├──────────────────────┼───────────────────────┼────────────────┼──────────────────────┤
+│ hajzy                │ hajzy-e26e3 (current) │ 850704791652   │ [Not specified]      │
+└──────────────────────┴───────────────────────┴────────────────┴──────────────────────┘
+[info] 
+[info] 1 project(s) total.

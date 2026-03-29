@@ -1,0 +1,10 @@
+mobile_admin
+.next
+node_modules
+firebase-debug.log
+*.log
+*.apk
+*.aab
+coverage
+dist
+build
