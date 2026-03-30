@@ -4,13 +4,20 @@
  * SMM providers embed refill information in the service name.
  * Examples:
  *   - "Instagram Likes [0-24 hrs] ♻ 30 Days Refill"
+ *   - "Instagram Followers | 30 Days ♻ | Low Drop"
  *   - "YouTube Subscribers - Lifetime Refill"
+ *   - "Followers | Lifetime ♻ | Real"
  *   - "TikTok Views - No Refill"
+ *   - "Followers [ ♻ No REFILL ] [0-24 hrs]"
  *   - "Instagram Followers [0-6 hrs] ♻ 365 Days Refill"
+ *   - "Followers | 1 Year ♻ | Instant"
  *
  * This module extracts the refill window (in hours) so we can compute
  * when refill becomes available after an order completes.
  */
+
+// The ♻ emoji is used interchangeably with the word "Refill" in SMM service names
+const REFILL_WORD = "(?:refill|♻)";
 
 /**
  * Parse the refill window in hours from a provider service name.
@@ -29,31 +36,53 @@ export function parseRefillWindowHours(
     return 0;
   }
 
-  const normalized = serviceName.toLowerCase();
-
-  // Check for "No Refill" explicitly
-  if (/\bno\s+refill\b/i.test(normalized)) {
+  // Check for "No Refill" / "No ♻" / "♻ No Refill" — must be checked first
+  if (/\bno[\s-]*(?:refill|♻)|(?:refill|♻)[\s-]*no\b/i.test(serviceName)) {
     return 0;
   }
 
-  // Check for "Lifetime Refill"
-  if (/\blifetime\s+refill\b/i.test(normalized)) {
+  // Check for "Lifetime Refill" or "Lifetime ♻" (in any order)
+  if (new RegExp(`\\blifetime[\\s-]*${REFILL_WORD}|${REFILL_WORD}[\\s-]*lifetime\\b`, "i").test(serviceName)) {
     return Infinity;
   }
 
-  // Parse patterns like "30 Days Refill", "365 Days Refill", "90 Days Refill"
-  const daysMatch = normalized.match(/(\d+)\s*days?\s*refill/i);
+  // Parse day patterns (both orders):
+  //   "30 Days Refill", "30 Days ♻", "♻ 30 Days", "Refill 30 Days"
+  const daysRe = new RegExp(
+    `(\\d+)\\s*days?\\s*${REFILL_WORD}|${REFILL_WORD}\\s*(\\d+)\\s*days?`,
+    "i"
+  );
+  const daysMatch = serviceName.match(daysRe);
   if (daysMatch) {
-    const days = parseInt(daysMatch[1], 10);
+    const days = parseInt(daysMatch[1] ?? daysMatch[2], 10);
     if (Number.isFinite(days) && days > 0) {
       return days * 24;
     }
   }
 
-  // Parse patterns like "1 Year Refill"
-  const yearMatch = normalized.match(/(\d+)\s*years?\s*refill/i);
+  // Parse month patterns:
+  //   "3 Months Refill", "3 Months ♻", "♻ 3 Months"
+  const monthsRe = new RegExp(
+    `(\\d+)\\s*months?\\s*${REFILL_WORD}|${REFILL_WORD}\\s*(\\d+)\\s*months?`,
+    "i"
+  );
+  const monthsMatch = serviceName.match(monthsRe);
+  if (monthsMatch) {
+    const months = parseInt(monthsMatch[1] ?? monthsMatch[2], 10);
+    if (Number.isFinite(months) && months > 0) {
+      return months * 30 * 24;
+    }
+  }
+
+  // Parse year patterns:
+  //   "1 Year Refill", "1 Year ♻", "♻ 1 Year", "2 Years Refill"
+  const yearRe = new RegExp(
+    `(\\d+)\\s*years?\\s*${REFILL_WORD}|${REFILL_WORD}\\s*(\\d+)\\s*years?`,
+    "i"
+  );
+  const yearMatch = serviceName.match(yearRe);
   if (yearMatch) {
-    const years = parseInt(yearMatch[1], 10);
+    const years = parseInt(yearMatch[1] ?? yearMatch[2], 10);
     if (Number.isFinite(years) && years > 0) {
       return years * 365 * 24;
     }
@@ -61,7 +90,7 @@ export function parseRefillWindowHours(
 
   // If supportsRefill is true but we found no specific window,
   // return null to indicate "refill supported, window unknown"
-  // The UI should allow refill after completion with no waiting period.
+  // The UI will allow refill indefinitely after completion with 24h cooldown.
   return null;
 }
 
