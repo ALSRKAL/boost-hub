@@ -94,14 +94,6 @@ interface RefillState {
 }
 
 function getRefillState(order: OrderDoc, nowMs: number): RefillState {
-  // Already requested
-  if (order.refillRequestId) {
-    const statusLabel = order.refillStatus
-      ? `Refill ${order.refillStatus}`
-      : "Refill requested";
-    return { kind: "requested", label: statusLabel };
-  }
-
   // No refill support
   if (!order.supportsRefill) {
     return { kind: "no_refill", label: "No refill support" };
@@ -112,7 +104,7 @@ function getRefillState(order: OrderDoc, nowMs: number): RefillState {
     return { kind: "no_refill", label: "No refill support" };
   }
 
-  // Not completed/partial
+  // Not completed/partial yet
   if (order.status !== "completed" && order.status !== "partial") {
     return { kind: "waiting_completion", label: "Refill after completion" };
   }
@@ -120,9 +112,15 @@ function getRefillState(order: OrderDoc, nowMs: number): RefillState {
   // ── Determine timing ─────────────────────────────────────────────
   const completedAtMs = tsToMs(order.completedAt);
   const refillAvailableAtMs = tsToMs(order.refillAvailableAt);
+  const refillRequestedAtMs = tsToMs(order.refillRequestedAt);
   const windowHours = order.refillWindowHours;
 
-  // Check if refill window has expired
+  // If windowHours is explicitly 0 (parsed "No Refill" from service name)
+  if (windowHours === 0) {
+    return { kind: "no_refill", label: "No refill support" };
+  }
+
+  // Check if refill window has expired (only for finite windows)
   if (
     completedAtMs &&
     typeof windowHours === "number" &&
@@ -135,12 +133,19 @@ function getRefillState(order: OrderDoc, nowMs: number): RefillState {
     }
   }
 
-  // If windowHours is explicitly 0 (parsed "No Refill" from service name)
-  if (windowHours === 0) {
-    return { kind: "no_refill", label: "No refill support" };
+  // ── 24h cooldown since last refill ──────────────────────────────
+  // If a refill was already requested, show countdown until next refill
+  if (refillRequestedAtMs) {
+    const nextAvailableMs = refillRequestedAtMs + MINIMUM_WAIT_MS;
+    if (nowMs < nextAvailableMs) {
+      const remain = nextAvailableMs - nowMs;
+      return { kind: "requested", label: `Refill requested`, remainMs: remain };
+    }
+    // 24h has passed since last refill → allow next refill
+    return { kind: "available", label: "Request Refill" };
   }
 
-  // Compute countdown
+  // ── First refill: wait 24h from order completion ─────────────────
   let availableAt: number | null = null;
 
   if (refillAvailableAtMs) {
@@ -285,8 +290,11 @@ export default function OrdersPage() {
                     "refillRequestId" in payload &&
                     typeof payload.refillRequestId === "string"
                       ? payload.refillRequestId
-                      : "requested",
+                      : `requested-${Date.now()}`,
                   refillStatus: "requested",
+                  // Set local timestamp so 24h countdown starts immediately
+                  refillRequestedAt: Timestamp.fromDate(new Date()),
+                  refillCount: typeof item.refillCount === "number" ? item.refillCount + 1 : 1,
                 }
               : item
           )
@@ -521,6 +529,32 @@ function RefillBadge({
   }
 
   if (state.kind === "requested") {
+    // If remainMs is set, show countdown until next refill is available
+    if (state.remainMs && state.remainMs > 0) {
+      return (
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setShowTooltip(true)}
+            className="inline-flex items-center gap-1.5 rounded-xl border border-blue-500/20 bg-blue-500/8 px-4 py-2 text-xs font-semibold text-blue-300/70 cursor-pointer transition-all hover:border-blue-500/40"
+          >
+            <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+            Refill
+          </button>
+          {showTooltip && (
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-max max-w-[220px] rounded-xl border border-blue-500/30 bg-[var(--color-bg-secondary)] px-3 py-2 text-center shadow-xl shadow-black/30">
+              <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-blue-300">
+                <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-blue-400" />
+                {state.label} — next in {formatCountdownStr(state.remainMs)}
+              </div>
+              <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
+                <div className="border-4 border-transparent border-t-[var(--color-bg-secondary)]" />
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
     return (
       <div className="inline-flex items-center gap-1.5 rounded-xl border border-blue-500/20 bg-blue-500/8 px-3 py-1.5 text-xs font-semibold text-blue-300 capitalize">
         <span className="inline-block h-1.5 w-1.5 rounded-full bg-blue-400" />
@@ -766,10 +800,13 @@ function OrdersTable({
                   ) : refillState.kind === "countdown" ? (
                     <MobileRefillCountdown label={refillState.label} />
                   ) : refillState.kind === "requested" ? (
-                    <div className="w-full rounded-2xl border border-blue-500/20 bg-blue-500/8 px-4 py-3 text-center text-sm text-blue-300 capitalize">
-                      <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-blue-400" />
-                      {refillState.label}
-                    </div>
+                    <MobileRefillCountdown
+                      label={
+                        refillState.remainMs && refillState.remainMs > 0
+                          ? `${refillState.label} — next in ${formatCountdownStr(refillState.remainMs)}`
+                          : refillState.label
+                      }
+                    />
                   ) : refillState.kind === "expired" ? (
                     <div className="w-full rounded-2xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-center text-sm text-red-300">
                       {refillState.label}

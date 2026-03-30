@@ -92,13 +92,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (typeof order.refillRequestId === "string" && order.refillRequestId.trim()) {
-      return NextResponse.json(
-        { error: "A refill has already been requested for this order." },
-        { status: 400 }
-      );
-    }
-
     const orderStatus = String(order.status ?? "");
 
     if (!["completed", "partial"].includes(orderStatus)) {
@@ -108,37 +101,51 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // ── Time-based refill guard ──────────────────────────────────────
-    // Check if the refill waiting period has elapsed
+    const REFILL_COOLDOWN_MS = 24 * 60 * 60 * 1000; // 24h between any two refills
     const nowMs = Date.now();
 
-    if (order.refillAvailableAt) {
-      const availableAtMs = order.refillAvailableAt.toDate().getTime();
-      if (nowMs < availableAtMs) {
-        const remainMs = availableAtMs - nowMs;
+    // ── 24h cooldown since last refill ───────────────────────────────
+    if (order.refillRequestedAt) {
+      const lastRefillMs = order.refillRequestedAt.toDate().getTime();
+      if (nowMs < lastRefillMs + REFILL_COOLDOWN_MS) {
+        const remainMs = lastRefillMs + REFILL_COOLDOWN_MS - nowMs;
         const remainHours = Math.floor(remainMs / (1000 * 60 * 60));
         const remainMins = Math.ceil((remainMs % (1000 * 60 * 60)) / (1000 * 60));
         return NextResponse.json(
           {
-            error: `Refill will be available in ${remainHours} hours ${remainMins} minutes.`,
+            error: `Next refill available in ${remainHours} hours ${remainMins} minutes.`,
           },
           { status: 400 }
         );
       }
-    } else if (order.completedAt) {
-      // Fallback: enforce 24h minimum wait from completion
-      const completedAtMs = order.completedAt.toDate().getTime();
-      const MINIMUM_WAIT_MS = 24 * 60 * 60 * 1000;
-      if (nowMs < completedAtMs + MINIMUM_WAIT_MS) {
-        const remainMs = completedAtMs + MINIMUM_WAIT_MS - nowMs;
-        const remainHours = Math.floor(remainMs / (1000 * 60 * 60));
-        const remainMins = Math.ceil((remainMs % (1000 * 60 * 60)) / (1000 * 60));
-        return NextResponse.json(
-          {
-            error: `Refill will be available in ${remainHours} hours ${remainMins} minutes.`,
-          },
-          { status: 400 }
-        );
+    } else {
+      // No refill done yet — enforce 24h from order completion (first refill wait)
+      if (order.refillAvailableAt) {
+        const availableAtMs = order.refillAvailableAt.toDate().getTime();
+        if (nowMs < availableAtMs) {
+          const remainMs = availableAtMs - nowMs;
+          const remainHours = Math.floor(remainMs / (1000 * 60 * 60));
+          const remainMins = Math.ceil((remainMs % (1000 * 60 * 60)) / (1000 * 60));
+          return NextResponse.json(
+            {
+              error: `Refill will be available in ${remainHours} hours ${remainMins} minutes.`,
+            },
+            { status: 400 }
+          );
+        }
+      } else if (order.completedAt) {
+        const completedAtMs = order.completedAt.toDate().getTime();
+        if (nowMs < completedAtMs + REFILL_COOLDOWN_MS) {
+          const remainMs = completedAtMs + REFILL_COOLDOWN_MS - nowMs;
+          const remainHours = Math.floor(remainMs / (1000 * 60 * 60));
+          const remainMins = Math.ceil((remainMs % (1000 * 60 * 60)) / (1000 * 60));
+          return NextResponse.json(
+            {
+              error: `Refill will be available in ${remainHours} hours ${remainMins} minutes.`,
+            },
+            { status: 400 }
+          );
+        }
       }
     }
 
@@ -168,20 +175,21 @@ export async function POST(request: NextRequest) {
       const msg =
         providerError instanceof Error ? providerError.message : "Provider refill failed.";
 
-      // If provider says refill was already done / no more refills,
-      // mark order as refilled so the user isn't stuck retrying
+      // If provider says refill was already done / no more refills for this period,
+      // record the attempt so the 24h cooldown timer still starts
       if (/no more refill|already.*refill|refill.*already/i.test(msg)) {
+        const currentCount = typeof order.refillCount === "number" ? order.refillCount : 0;
         await orderRef.update({
-          refillRequestId: `already-refilled-${order.providerOrderId}`,
+          refillRequestId: `provider-refill-${order.providerOrderId}-${Date.now()}`,
           refillStatus: "requested",
+          refillCount: currentCount + 1,
           refillRequestedAt: FieldValue.serverTimestamp(),
           refillUpdatedAt: FieldValue.serverTimestamp(),
         });
 
         return NextResponse.json({
           success: true,
-          refillRequestId: `already-refilled-${order.providerOrderId}`,
-          note: "Provider indicates this order was already refilled.",
+          note: "Provider indicates this order was already refilled for this period.",
         });
       }
 
@@ -190,9 +198,11 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: msg }, { status: 400 });
     }
 
+    const currentCount = typeof order.refillCount === "number" ? order.refillCount : 0;
     await orderRef.update({
       refillRequestId,
       refillStatus: "requested",
+      refillCount: currentCount + 1,
       refillRequestedAt: FieldValue.serverTimestamp(),
       refillUpdatedAt: FieldValue.serverTimestamp(),
     });

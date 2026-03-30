@@ -56,8 +56,9 @@ export interface OrderDoc {
   providerOrderId?: string; // ID returned by the SMM provider
   providerCharge?: number; // Actual cost from provider (hidden from user)
   supportsRefill?: boolean;
-  refillRequestId?: string;
+  refillRequestId?: string;       // ID of the most recent refill request
   refillStatus?: "requested" | "processing" | "completed" | "failed";
+  refillCount?: number;           // Total number of refills requested so far
   refundState?: "none" | "awaiting_provider_refund" | "refunded_to_user";
   providerLastStatus?: string;
   providerRefundConfirmedAt?: Timestamp;
@@ -65,13 +66,13 @@ export interface OrderDoc {
   refundedAmount?: number;
   completedAt?: Timestamp;
   refillWindowHours?: number | null;
-  refillAvailableAt?: Timestamp;
+  refillAvailableAt?: Timestamp;  // When the FIRST refill becomes available (24h after completion)
   status: OrderStatus;
   startCount?: number;
   remains?: number;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
-  refillRequestedAt?: Timestamp;
+  refillRequestedAt?: Timestamp;  // When the LAST refill was requested (for 24h cooldown)
   refillUpdatedAt?: Timestamp;
 }
 
