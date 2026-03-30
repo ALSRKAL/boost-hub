@@ -11,12 +11,12 @@ const inter = Inter({
 
 export const metadata: Metadata = {
   title: {
-    default: "SMM Panel — Premium Social Media Marketing",
-    template: "%s | SMM Panel",
+    default: "BoostHub — Premium Social Media Marketing",
+    template: "%s | BoostHub",
   },
   description:
     "Premium social media marketing panel. Buy followers, likes, views, and more at the best prices.",
-  keywords: ["SMM", "social media marketing", "buy followers", "buy likes", "SMM panel"],
+  keywords: ["BoostHub", "social media marketing", "buy followers", "buy likes", "SMM panel"],
 };
 
 export default function RootLayout({

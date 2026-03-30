@@ -128,7 +128,7 @@ export default function OrdersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refillingOrderId, setRefillingOrderId] = useState<string | null>(null);
-  const [, setTick] = useState(0);
+  const [tick, setTick] = useState(0);
 
   // Re-render every 30s so countdowns update
   useEffect(() => {
@@ -137,7 +137,7 @@ export default function OrdersPage() {
   }, []);
 
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const nowMs = useMemo(() => Date.now(), [orders]);
+  const nowMs = useMemo(() => Date.now(), [orders, tick]);
 
   useEffect(() => {
     const userId = user?.uid;
@@ -298,19 +298,85 @@ function RefillBadge({
   isLoading: boolean;
   onRefill: () => void;
 }) {
+  const [showTooltip, setShowTooltip] = useState(false);
+
+  // Auto-hide tooltip after 3 seconds
+  useEffect(() => {
+    if (!showTooltip) return;
+    const timer = setTimeout(() => setShowTooltip(false), 3000);
+    return () => clearTimeout(timer);
+  }, [showTooltip]);
+
   if (state.kind === "available") {
     return (
-      <Button variant="secondary" isLoading={isLoading} onClick={onRefill}>
-        Request Refill
-      </Button>
+      <button
+        type="button"
+        onClick={onRefill}
+        disabled={isLoading}
+        className="inline-flex items-center gap-1.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-4 py-2 text-xs font-semibold text-emerald-300 transition-all duration-200 hover:bg-emerald-500/20 hover:border-emerald-500/50 active:scale-95 disabled:opacity-60"
+      >
+        {isLoading ? (
+          <>
+            <svg className="animate-spin h-3.5 w-3.5" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+            Requesting…
+          </>
+        ) : (
+          <>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+            Request Refill
+          </>
+        )}
+      </button>
     );
   }
 
   if (state.kind === "countdown") {
     return (
-      <div className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/20 bg-amber-500/8 px-3 py-1.5 text-xs font-semibold text-amber-300">
-        <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-        {state.label}
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setShowTooltip(true)}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-amber-500/20 bg-amber-500/8 px-4 py-2 text-xs font-semibold text-amber-300/70 cursor-pointer transition-all hover:border-amber-500/40"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Refill
+        </button>
+        {showTooltip && (
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-max max-w-[220px] rounded-xl border border-amber-500/30 bg-[var(--color-bg-secondary)] px-3 py-2 text-center shadow-xl shadow-black/30">
+            <div className="flex items-center justify-center gap-1.5 text-xs font-semibold text-amber-300">
+              <span className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+              {state.label}
+            </div>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
+              <div className="border-4 border-transparent border-t-[var(--color-bg-secondary)]" />
+            </div>
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (state.kind === "waiting_completion") {
+    return (
+      <div className="relative">
+        <button
+          type="button"
+          onClick={() => setShowTooltip(true)}
+          className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-[11px] text-[var(--color-text-muted)] cursor-pointer transition-all hover:border-[var(--color-text-muted)]/30"
+        >
+          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+          Refill
+        </button>
+        {showTooltip && (
+          <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-50 w-max max-w-[220px] rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-2 text-center shadow-xl shadow-black/30">
+            <p className="text-xs text-[var(--color-text-muted)]">
+              Refill will be available after order completes and 24h waiting period
+            </p>
+            <div className="absolute top-full left-1/2 -translate-x-1/2 -mt-px">
+              <div className="border-4 border-transparent border-t-[var(--color-bg-secondary)]" />
+            </div>
+          </div>
+        )}
       </div>
     );
   }
@@ -332,27 +398,15 @@ function RefillBadge({
     );
   }
 
-  if (state.kind === "waiting_completion") {
-    return (
-      <span className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-3 py-1.5 text-[11px] text-[var(--color-text-muted)]">
-        {state.label}
-      </span>
-    );
-  }
-
   if (state.kind === "no_refill") {
     return (
       <span className="text-xs text-[var(--color-text-muted)]">
-        {state.label}
+        —
       </span>
     );
   }
 
-  return (
-    <span className="text-xs text-[var(--color-text-muted)]">
-      {state.label}
-    </span>
-  );
+  return null;
 }
 
 // ── Orders Table ──────────────────────────────────────────────────
@@ -541,40 +595,95 @@ function OrdersTable({
               </a>
 
               {/* Refill area for mobile */}
-              <div className="flex items-center justify-center">
-                {refillState.kind === "available" ? (
-                  <Button
-                    variant="secondary"
-                    fullWidth
-                    isLoading={refillingOrderId === order.id}
-                    onClick={() => onRefill(order)}
-                  >
-                    Request Refill
-                  </Button>
-                ) : refillState.kind === "countdown" ? (
-                  <div className="w-full rounded-2xl border border-amber-500/20 bg-amber-500/8 px-4 py-3 text-center text-sm font-semibold text-amber-300">
-                    <span className="mr-2 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
-                    {refillState.label}
-                  </div>
-                ) : refillState.kind === "requested" ? (
-                  <div className="w-full rounded-2xl border border-blue-500/20 bg-blue-500/8 px-4 py-3 text-center text-sm text-blue-300 capitalize">
-                    {refillState.label}
-                  </div>
-                ) : refillState.kind === "expired" ? (
-                  <div className="w-full rounded-2xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-center text-sm text-red-300">
-                    {refillState.label}
-                  </div>
-                ) : refillState.kind === "waiting_completion" ? (
-                  <div className="w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-4 py-3 text-sm text-[var(--color-text-muted)]">
-                    {refillState.label}
-                  </div>
-                ) : null}
-              </div>
+              {refillState.kind !== "no_refill" && (
+                <div className="flex items-center justify-center">
+                  {refillState.kind === "available" ? (
+                    <button
+                      type="button"
+                      className="w-full flex items-center justify-center gap-2 rounded-xl border border-emerald-500/30 bg-emerald-500/10 py-3 text-sm font-semibold text-emerald-300 transition-all active:scale-[0.98] disabled:opacity-60"
+                      disabled={refillingOrderId === order.id}
+                      onClick={() => onRefill(order)}
+                    >
+                      {refillingOrderId === order.id ? (
+                        <>
+                          <svg className="animate-spin h-4 w-4" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"/></svg>
+                          Requesting…
+                        </>
+                      ) : (
+                        <>
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>
+                          Request Refill
+                        </>
+                      )}
+                    </button>
+                  ) : refillState.kind === "countdown" ? (
+                    <MobileRefillCountdown label={refillState.label} />
+                  ) : refillState.kind === "requested" ? (
+                    <div className="w-full rounded-2xl border border-blue-500/20 bg-blue-500/8 px-4 py-3 text-center text-sm text-blue-300 capitalize">
+                      <span className="mr-2 inline-block h-1.5 w-1.5 rounded-full bg-blue-400" />
+                      {refillState.label}
+                    </div>
+                  ) : refillState.kind === "expired" ? (
+                    <div className="w-full rounded-2xl border border-red-500/20 bg-red-500/8 px-4 py-3 text-center text-sm text-red-300">
+                      {refillState.label}
+                    </div>
+                  ) : refillState.kind === "waiting_completion" ? (
+                    <MobileRefillWaiting />
+                  ) : null}
+                </div>
+              )}
             </div>
           );
         })}
       </div>
     </div>
+  );
+}
+
+// ── Mobile Refill Components ──────────────────────────────────────
+
+function MobileRefillCountdown({ label }: { label: string }) {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded((v) => !v)}
+      className="w-full rounded-2xl border border-amber-500/20 bg-amber-500/8 px-4 py-3 text-center transition-all active:scale-[0.98]"
+    >
+      <div className="flex items-center justify-center gap-2 text-sm font-semibold text-amber-300/70">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Refill
+      </div>
+      {expanded && (
+        <p className="mt-2 text-xs font-semibold text-amber-300">
+          <span className="mr-1 inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-amber-400" />
+          {label}
+        </p>
+      )}
+    </button>
+  );
+}
+
+function MobileRefillWaiting() {
+  const [expanded, setExpanded] = useState(false);
+
+  return (
+    <button
+      type="button"
+      onClick={() => setExpanded((v) => !v)}
+      className="w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-4 py-3 text-center transition-all active:scale-[0.98]"
+    >
+      <div className="flex items-center justify-center gap-2 text-sm text-[var(--color-text-muted)]">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+        Refill
+      </div>
+      {expanded && (
+        <p className="mt-2 text-xs text-[var(--color-text-muted)]">
+          Available after order completes + 24h waiting period
+        </p>
+      )}
+    </button>
   );
 }
 

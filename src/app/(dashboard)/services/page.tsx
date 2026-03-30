@@ -1,6 +1,7 @@
 "use client";
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import PlatformIcon from "@/components/ui/PlatformIcon";
 import { APP_CONFIG, formatCurrency } from "@/lib/constants";
 import {
@@ -346,6 +347,9 @@ function ServicesSections({
                   <th className="px-5 py-4 text-right text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
                     Our Price
                   </th>
+                  <th className="px-5 py-4 text-center text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
+                    Action
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -386,6 +390,17 @@ function ServicesSections({
                         </p>
                       </div>
                     </td>
+                    <td className="px-5 py-4 text-center align-middle">
+                      <Link
+                        href={`/new-order?service=${service.id}`}
+                        className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10 px-4 py-2 text-xs font-semibold text-[var(--color-accent)] transition-all duration-200 hover:bg-[var(--color-accent)]/20 hover:border-[var(--color-accent)]/50 active:scale-95"
+                      >
+                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                          <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+                        </svg>
+                        Order
+                      </Link>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -425,6 +440,16 @@ function ServicesSections({
                     value={`${service.min.toLocaleString("en-IN")} / ${service.max.toLocaleString("en-IN")}`}
                   />
                 </div>
+
+                <Link
+                  href={`/new-order?service=${service.id}`}
+                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-all duration-200 hover:bg-[var(--color-accent)]/20 active:scale-[0.98]"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
+                  </svg>
+                  Order Now
+                </Link>
               </article>
             ))}
           </div>

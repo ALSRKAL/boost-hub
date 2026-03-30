@@ -159,7 +159,7 @@ export default function DashboardPage() {
           },
           {
             label: "WhatsApp",
-            href: "https://wa.me/967711114569?text=Hello%2C%20I%20need%20help%20with%20my%20SMM%20Panel%20account.",
+            href: "https://wa.me/967711114569?text=Hello%2C%20I%20need%20help%20with%20my%20BoostHub%20account.",
             icon: "💬",
             desc: "Chat on WhatsApp",
             external: true,
@@ -244,7 +244,7 @@ export default function DashboardPage() {
             <div className="mb-4 flex items-center justify-between">
               <span className="text-2xl">{stat.icon}</span>
             </div>
-            <p className="text-2xl font-bold text-[var(--color-text-primary)]">
+            <p className="text-lg sm:text-xl lg:text-2xl font-bold text-[var(--color-text-primary)] truncate">
               {loading ? "…" : stat.value}
             </p>
             <p className="mt-1 text-sm text-[var(--color-text-muted)]">{stat.label}</p>
@@ -460,7 +460,7 @@ function ReportCard({
   return (
     <div className={`glass-card rounded-3xl border p-5 ${accentClasses[accent]}`}>
       <p className="text-[11px] uppercase tracking-[0.18em] text-white/60">{label}</p>
-      <p className="mt-3 text-3xl font-bold">{value}</p>
+      <p className="mt-3 text-xl sm:text-2xl lg:text-3xl font-bold break-all">{value}</p>
       <p className="mt-3 text-sm text-white/70">{note}</p>
     </div>
   );

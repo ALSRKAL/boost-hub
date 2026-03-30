@@ -177,7 +177,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Google sign in failed";
-      setError(message);
+      // auth/unauthorized-domain = domain not in Firebase authorized list
+      if (message.includes("unauthorized-domain")) {
+        setError(
+          "This domain is not authorized in Firebase. Add it in Firebase Console → Authentication → Settings → Authorized domains."
+        );
+      } else if (!message.includes("popup-closed")) {
+        setError(message);
+      }
       setLoading(false);
       throw err;
     }

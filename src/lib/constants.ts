@@ -3,7 +3,7 @@
 // ============================================================
 
 export const APP_CONFIG = {
-  name: "SMM Panel",
+  name: "BoostHub",
   tagline: "Premium Social Media Marketing Services",
   currency: {
     symbol: "₹",

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
@@ -75,6 +76,8 @@ function formatServiceOption(service: ServiceItem): string {
 export default function NewOrderPage() {
   const { user, userProfile } = useAuth();
   const { toasts, addToast, removeToast } = useToast();
+  const searchParams = useSearchParams();
+  const preselectedServiceId = searchParams.get("service");
 
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [loadingServices, setLoadingServices] = useState(true);
@@ -123,8 +126,21 @@ export default function NewOrderPage() {
 
         const nextServices = payload as ServiceItem[];
         const platformGroups = groupServicesByPlatform(nextServices);
-        const initialPlatform = platformGroups[0];
-        const initialService = initialPlatform?.services[0];
+
+        // If a service was preselected via URL (?service=ID), find its platform
+        let initialPlatform = platformGroups[0];
+        let initialService = initialPlatform?.services[0];
+
+        if (preselectedServiceId) {
+          for (const group of platformGroups) {
+            const found = group.services.find((s) => s.id === preselectedServiceId);
+            if (found) {
+              initialPlatform = group;
+              initialService = found;
+              break;
+            }
+          }
+        }
 
         setServices(nextServices);
         setSelectedPlatformKey(initialPlatform?.platform.key ?? "");
@@ -145,7 +161,7 @@ export default function NewOrderPage() {
     loadServices();
 
     return () => controller.abort();
-  }, []);
+  }, [preselectedServiceId]);
 
   const platformGroups = useMemo(() => groupServicesByPlatform(services), [services]);
   const selectedPlatformGroup =
@@ -405,7 +421,7 @@ export default function NewOrderPage() {
               <p className="text-xs uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
                 Total Charge
               </p>
-              <p className="mt-2 text-3xl font-bold text-emerald-300">
+              <p className="mt-2 text-xl sm:text-2xl lg:text-3xl font-bold text-emerald-300 truncate">
                 {formatCurrency(totalCharge ?? 0)}
               </p>
               <p className="mt-2 text-sm text-[var(--color-text-muted)]">

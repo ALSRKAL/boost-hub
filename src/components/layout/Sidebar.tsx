@@ -24,7 +24,7 @@ export default function Sidebar() {
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 py-6 border-b border-[var(--color-border)]">
         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--color-accent)] to-[var(--color-accent-hover)] flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-[var(--color-accent)]/25 shrink-0">
-          S
+          B
         </div>
         {!collapsed && (
           <div className="overflow-hidden">
@@ -32,7 +32,7 @@ export default function Sidebar() {
               {APP_CONFIG.name}
             </h1>
             <p className="text-xs text-[var(--color-text-muted)] whitespace-nowrap">
-              Marketing Panel
+              Boost Your Socials
             </p>
           </div>
         )}

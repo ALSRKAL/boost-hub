@@ -19,12 +19,12 @@ export default function Header() {
           {/* Balance Card */}
           <Link
             href="/add-funds"
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-gradient-to-r from-[var(--color-accent)]/10 to-[var(--color-accent-hover)]/10 border border-[var(--color-accent)]/20 hover:border-[var(--color-accent)]/40 transition-all duration-200 group"
+            className="flex items-center gap-2 px-3 py-2 rounded-xl bg-gradient-to-r from-[var(--color-accent)]/10 to-[var(--color-accent-hover)]/10 border border-[var(--color-accent)]/20 hover:border-[var(--color-accent)]/40 transition-all duration-200 group min-w-0"
           >
-            <span className="text-lg">💰</span>
-            <div>
+            <span className="text-lg shrink-0">💰</span>
+            <div className="min-w-0">
               <p className="text-xs text-[var(--color-text-muted)]">Balance</p>
-              <p className="text-sm font-bold text-[var(--color-accent)] group-hover:text-[var(--color-accent-hover)] transition-colors">
+              <p className="text-xs sm:text-sm font-bold text-[var(--color-accent)] group-hover:text-[var(--color-accent-hover)] transition-colors truncate">
                 {formatCurrency(userProfile?.balance ?? 0)}
               </p>
             </div>
