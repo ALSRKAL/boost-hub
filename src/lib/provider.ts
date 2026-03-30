@@ -290,6 +290,7 @@ export async function createProviderRefill(orderId: string): Promise<string> {
     throw new Error(normalizeProviderErrorMessage(payload.error));
   }
 
+  // Some providers return { "refill": <id> }
   if (
     payload &&
     typeof payload === "object" &&
@@ -297,6 +298,17 @@ export async function createProviderRefill(orderId: string): Promise<string> {
     (typeof payload.refill === "string" || typeof payload.refill === "number")
   ) {
     return String(payload.refill);
+  }
+
+  // smmbin.com returns { "status": "Success", "message": "..." }
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "status" in payload &&
+    typeof payload.status === "string" &&
+    payload.status.toLowerCase() === "success"
+  ) {
+    return `refill-${orderId}-${Date.now()}`;
   }
 
   throw new Error("Provider returned an invalid refill response.");

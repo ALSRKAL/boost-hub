@@ -160,7 +160,35 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    const refillRequestId = await createProviderRefill(order.providerOrderId);
+    let refillRequestId: string;
+
+    try {
+      refillRequestId = await createProviderRefill(order.providerOrderId);
+    } catch (providerError) {
+      const msg =
+        providerError instanceof Error ? providerError.message : "Provider refill failed.";
+
+      // If provider says refill was already done / no more refills,
+      // mark order as refilled so the user isn't stuck retrying
+      if (/no more refill|already.*refill|refill.*already/i.test(msg)) {
+        await orderRef.update({
+          refillRequestId: `already-refilled-${order.providerOrderId}`,
+          refillStatus: "requested",
+          refillRequestedAt: FieldValue.serverTimestamp(),
+          refillUpdatedAt: FieldValue.serverTimestamp(),
+        });
+
+        return NextResponse.json({
+          success: true,
+          refillRequestId: `already-refilled-${order.providerOrderId}`,
+          note: "Provider indicates this order was already refilled.",
+        });
+      }
+
+      // Other provider errors → return 400, not 500
+      console.error("Provider refill error:", providerError);
+      return NextResponse.json({ error: msg }, { status: 400 });
+    }
 
     await orderRef.update({
       refillRequestId,

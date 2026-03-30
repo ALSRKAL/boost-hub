@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback, useMemo } from "react";
+import { useDeferredValue, useEffect, useState, useCallback, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
 import Toast, { useToast } from "@/components/ui/Toast";
 import {
@@ -15,6 +15,61 @@ import { Timestamp } from "firebase/firestore";
 // ── Refill helpers (client-side) ──────────────────────────────────
 
 const MINIMUM_WAIT_MS = 24 * 60 * 60 * 1000;
+type OrderFilterKey = "all" | "active" | "completed" | "attention";
+
+const ACTIVE_ORDER_STATUSES = new Set<OrderDoc["status"]>([
+  "pending",
+  "processing",
+  "in_progress",
+]);
+
+const COMPLETED_ORDER_STATUSES = new Set<OrderDoc["status"]>([
+  "completed",
+  "partial",
+]);
+
+const ATTENTION_ORDER_STATUSES = new Set<OrderDoc["status"]>([
+  "cancelled",
+  "failed",
+]);
+
+function matchesOrderFilter(order: OrderDoc, filterKey: OrderFilterKey): boolean {
+  if (filterKey === "active") {
+    return ACTIVE_ORDER_STATUSES.has(order.status);
+  }
+
+  if (filterKey === "completed") {
+    return COMPLETED_ORDER_STATUSES.has(order.status);
+  }
+
+  if (filterKey === "attention") {
+    return (
+      ATTENTION_ORDER_STATUSES.has(order.status) ||
+      order.refundState === "awaiting_provider_refund" ||
+      order.refundState === "refunded_to_user"
+    );
+  }
+
+  return true;
+}
+
+function matchesOrderSearch(order: OrderDoc, normalizedQuery: string): boolean {
+  if (!normalizedQuery) {
+    return true;
+  }
+
+  return [
+    order.id,
+    order.providerOrderId,
+    order.serviceId,
+    order.serviceName,
+    order.category,
+    order.link,
+    order.status,
+    order.refundState,
+    String(order.quantity),
+  ].some((value) => String(value ?? "").toLowerCase().includes(normalizedQuery));
+}
 
 function tsToMs(ts: Timestamp | undefined): number | null {
   if (!ts) return null;
@@ -49,6 +104,11 @@ function getRefillState(order: OrderDoc, nowMs: number): RefillState {
 
   // No refill support
   if (!order.supportsRefill) {
+    return { kind: "no_refill", label: "No refill support" };
+  }
+
+  // Cancelled / failed orders can never be refilled
+  if (order.status === "cancelled" || order.status === "failed") {
     return { kind: "no_refill", label: "No refill support" };
   }
 
@@ -128,6 +188,11 @@ export default function OrdersPage() {
   const [error, setError] = useState<string | null>(null);
   const [refillingOrderId, setRefillingOrderId] = useState<string | null>(null);
   const [tick, setTick] = useState(0);
+  const [search, setSearch] = useState("");
+  const [activeFilter, setActiveFilter] = useState<OrderFilterKey>("all");
+
+  const deferredSearch = useDeferredValue(search);
+  const normalizedSearch = deferredSearch.trim().toLowerCase();
 
   // Re-render every 30s so countdowns update
   useEffect(() => {
@@ -242,6 +307,26 @@ export default function OrdersPage() {
     [user, addToast]
   );
 
+  const orderFilterCounts = useMemo(
+    () => ({
+      all: orders.length,
+      active: orders.filter((order) => matchesOrderFilter(order, "active")).length,
+      completed: orders.filter((order) => matchesOrderFilter(order, "completed")).length,
+      attention: orders.filter((order) => matchesOrderFilter(order, "attention")).length,
+    }),
+    [orders]
+  );
+
+  const visibleOrders = useMemo(
+    () =>
+      orders.filter(
+        (order) =>
+          matchesOrderFilter(order, activeFilter) &&
+          matchesOrderSearch(order, normalizedSearch)
+      ),
+    [orders, activeFilter, normalizedSearch]
+  );
+
   return (
     <div className="max-w-7xl mx-auto space-y-6">
       <Toast toasts={toasts} onRemove={removeToast} />
@@ -260,15 +345,78 @@ export default function OrdersPage() {
         </p>
       </section>
 
+      <section className="sticky top-20 z-20">
+        <div className="glass-card rounded-3xl border border-[var(--color-border)] px-4 py-4 shadow-2xl shadow-black/10">
+          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+            <div className="relative flex-1">
+              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]">
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                >
+                  <circle cx="11" cy="11" r="7" />
+                  <path d="m20 20-3.5-3.5" />
+                </svg>
+              </span>
+              <input
+                type="search"
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search by service, order ID, link, status, or refund state..."
+                className="w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] py-3 pl-12 pr-4 text-sm text-[var(--color-text-primary)] outline-none transition-all duration-200 placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20"
+              />
+            </div>
+
+            <div className="flex flex-wrap items-center gap-3 text-sm">
+              <OrdersSummaryPill label="Visible" value={String(visibleOrders.length)} />
+              <OrdersSummaryPill label="Total" value={String(orders.length)} />
+            </div>
+          </div>
+
+          <div className="mt-4 flex flex-wrap items-center gap-3">
+            <OrdersFilterButton
+              label="All Orders"
+              count={orderFilterCounts.all}
+              active={activeFilter === "all"}
+              onClick={() => setActiveFilter("all")}
+            />
+            <OrdersFilterButton
+              label="Active"
+              count={orderFilterCounts.active}
+              active={activeFilter === "active"}
+              onClick={() => setActiveFilter("active")}
+            />
+            <OrdersFilterButton
+              label="Completed / Partial"
+              count={orderFilterCounts.completed}
+              active={activeFilter === "completed"}
+              onClick={() => setActiveFilter("completed")}
+            />
+            <OrdersFilterButton
+              label="Refunds / Failed"
+              count={orderFilterCounts.attention}
+              active={activeFilter === "attention"}
+              onClick={() => setActiveFilter("attention")}
+            />
+          </div>
+        </div>
+      </section>
+
       {loading ? (
         <OrdersSkeleton />
       ) : error ? (
         <OrdersError message={error} />
       ) : orders.length === 0 ? (
         <OrdersEmpty />
+      ) : visibleOrders.length === 0 ? (
+        <OrdersEmpty hasFilters activeFilter={activeFilter} />
       ) : (
         <OrdersTable
-          orders={orders}
+          orders={visibleOrders}
           nowMs={nowMs}
           refillingOrderId={refillingOrderId}
           onRefill={handleRefill}
@@ -721,15 +869,80 @@ function OrdersSkeleton() {
   );
 }
 
-function OrdersEmpty() {
+function OrdersSummaryPill({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-4 py-2">
+      <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
+        {label}
+      </p>
+      <p className="mt-1 text-sm font-semibold text-[var(--color-text-primary)]">
+        {value}
+      </p>
+    </div>
+  );
+}
+
+function OrdersFilterButton({
+  label,
+  count,
+  active,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  active: boolean;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm font-medium transition-all duration-200 ${
+        active
+          ? "border-[var(--color-accent)] bg-[var(--color-accent)] text-white"
+          : "border-[var(--color-border)] bg-[var(--color-bg-secondary)] text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)]"
+      }`}
+    >
+      <span>{label}</span>
+      <span
+        className={`rounded-full px-2 py-0.5 text-xs ${
+          active
+            ? "bg-white/15 text-white"
+            : "bg-[var(--color-bg-tertiary)] text-[var(--color-text-muted)]"
+        }`}
+      >
+        {count}
+      </span>
+    </button>
+  );
+}
+
+function OrdersEmpty({
+  hasFilters = false,
+  activeFilter = "all",
+}: {
+  hasFilters?: boolean;
+  activeFilter?: OrderFilterKey;
+}) {
+  const filterLabel =
+    activeFilter === "active"
+      ? "active"
+      : activeFilter === "completed"
+        ? "completed"
+        : activeFilter === "attention"
+          ? "refund / failed"
+          : "all";
+
   return (
     <div className="glass-card rounded-3xl p-12 text-center">
-      <span className="mb-4 block text-5xl">📦</span>
+      <span className="mb-4 block text-5xl">{hasFilters ? "🔎" : "📦"}</span>
       <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">
-        No orders yet
+        {hasFilters ? "No orders match your filters" : "No orders yet"}
       </h2>
       <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-        Your placed orders will appear here as soon as you start using the panel.
+        {hasFilters
+          ? `Try another search term or switch from the ${filterLabel} filter to view more orders.`
+          : "Your placed orders will appear here as soon as you start using the panel."}
       </p>
     </div>
   );
