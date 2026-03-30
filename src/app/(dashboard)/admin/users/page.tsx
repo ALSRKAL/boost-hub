@@ -3,7 +3,7 @@
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import AdminGuard from "@/components/admin/AdminGuard";
 import {
-  getAllUsers,
+  subscribeAllUsers,
   timestampToDate,
   type UserDoc,
 } from "@/lib/db";
@@ -25,33 +25,26 @@ function AdminUsersContent() {
   const deferredSearch = useDeferredValue(search);
 
   useEffect(() => {
-    let cancelled = false;
+    let receivedInitialSnapshot = false;
 
-    async function loadUsers() {
-      try {
-        setLoading(true);
+    const unsubscribe = subscribeAllUsers(
+      (nextUsers) => {
+        setUsers(nextUsers);
         setError(null);
-        const nextUsers = await getAllUsers();
-
-        if (!cancelled) {
-          setUsers(nextUsers);
-        }
-      } catch (err) {
-        console.error("Failed to load users:", err);
-        if (!cancelled) {
-          setError("Failed to load users. Please try again.");
-        }
-      } finally {
-        if (!cancelled) {
+        if (!receivedInitialSnapshot) {
+          receivedInitialSnapshot = true;
           setLoading(false);
         }
+      },
+      (err) => {
+        console.error("Failed to load users:", err);
+        setError("Failed to load users. Please try again.");
+        setLoading(false);
       }
-    }
-
-    loadUsers();
+    );
 
     return () => {
-      cancelled = true;
+      unsubscribe();
     };
   }, []);
 

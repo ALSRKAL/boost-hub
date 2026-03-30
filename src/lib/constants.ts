@@ -46,6 +46,7 @@ export const COLLECTIONS = {
   users: "users",
   deposits: "deposits",
   orders: "orders",
+  systemMetrics: "system_metrics",
 } as const;
 
 // ============================================================

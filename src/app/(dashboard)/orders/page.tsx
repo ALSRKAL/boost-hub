@@ -2,10 +2,9 @@
 
 import { useEffect, useState, useCallback, useMemo } from "react";
 import { useAuth } from "@/context/AuthContext";
-import Button from "@/components/ui/Button";
 import Toast, { useToast } from "@/components/ui/Toast";
 import {
-  getUserOrders,
+  subscribeUserOrders,
   statusBadgeClass,
   timestampToDate,
   type OrderDoc,
@@ -145,42 +144,33 @@ export default function OrdersPage() {
     if (!userId) {
       setOrders([]);
       setLoading(false);
+      setError(null);
       return;
     }
 
-    let cancelled = false;
+    let receivedInitialSnapshot = false;
 
-    async function loadOrders() {
-      try {
-        if (!userId) {
-          setOrders([]);
+    setLoading(true);
+    setError(null);
+
+    const unsubscribe = subscribeUserOrders(
+      userId,
+      (nextOrders) => {
+        setOrders(nextOrders);
+        if (!receivedInitialSnapshot) {
+          receivedInitialSnapshot = true;
           setLoading(false);
-          return;
         }
-
-        setLoading(true);
-        setError(null);
-        const nextOrders = await getUserOrders(userId);
-
-        if (!cancelled) {
-          setOrders(nextOrders);
-        }
-      } catch (err) {
+      },
+      (err) => {
         console.error("Failed to load orders:", err);
-        if (!cancelled) {
-          setError("Failed to load your orders. Please try again.");
-        }
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
+        setError("Failed to load your orders. Please try again.");
+        setLoading(false);
       }
-    }
-
-    loadOrders();
+    );
 
     return () => {
-      cancelled = true;
+      unsubscribe();
     };
   }, [user?.uid]);
 
@@ -265,7 +255,8 @@ export default function OrdersPage() {
         </h1>
         <p className="max-w-3xl text-sm text-[var(--color-text-muted)]">
           Review every order you placed, its current provider status, and the
-          exact amount charged to your balance.
+          exact amount charged to your balance. Status and refunds update here
+          automatically after each provider sync.
         </p>
       </section>
 
@@ -412,19 +403,27 @@ function RefillBadge({
 // ── Orders Table ──────────────────────────────────────────────────
 
 function getRefundMessage(order: OrderDoc): string | null {
-  if (order.status !== "cancelled") {
+  if (order.status !== "cancelled" && order.status !== "failed") {
     return null;
   }
 
   if (order.refundState === "refunded_to_user") {
-    return "Refunded to your balance";
+    const refundedAmount =
+      typeof order.refundedAmount === "number"
+        ? `${formatCurrency(order.refundedAmount)} refunded to your balance`
+        : "Refunded to your balance";
+    const refundedAt = order.refundedToUserAt
+      ? ` on ${timestampToDate(order.refundedToUserAt)}`
+      : "";
+
+    return `${refundedAmount}${refundedAt}`;
   }
 
   if (order.refundState === "awaiting_provider_refund") {
-    return "Cancelled at provider. Waiting for provider refund confirmation.";
+    return "Cancelled at provider. Waiting for automatic refund confirmation.";
   }
 
-  return "Cancelled";
+  return order.status === "failed" ? "Order failed" : "Cancelled";
 }
 
 function OrdersTable({

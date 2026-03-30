@@ -76,5 +76,14 @@ service cloud.firestore {
       allow update: if isAdmin();
       allow delete: if false;
     }
+
+    // ============================================================
+    // System Metrics Collection
+    // ============================================================
+
+    match /system_metrics/{metricId} {
+      allow read: if isAdmin();
+      allow create, update, delete: if false;
+    }
   }
 }

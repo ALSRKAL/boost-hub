@@ -5,6 +5,10 @@ on:
     - cron: "*/15 * * * *"
   workflow_dispatch:
 
+concurrency:
+  group: sync-orders-production
+  cancel-in-progress: false
+
 jobs:
   sync:
     runs-on: ubuntu-latest
@@ -13,11 +17,16 @@ jobs:
     steps:
       - name: Trigger order sync
         env:
-          SYNC_ORDERS_URL: https://smm-ten-coral.vercel.app/api/cron/sync-orders
+          SYNC_ORDERS_URL: ${{ vars.SYNC_ORDERS_URL || 'https://smm-ten-coral.vercel.app/api/cron/sync-orders' }}
           CRON_SECRET: ${{ secrets.CRON_SECRET }}
         run: |
           if [ -z "$CRON_SECRET" ]; then
             echo "CRON_SECRET is not set in GitHub Actions secrets."
+            exit 1
+          fi
+
+          if [ -z "$SYNC_ORDERS_URL" ]; then
+            echo "SYNC_ORDERS_URL is not configured."
             exit 1
           fi
 

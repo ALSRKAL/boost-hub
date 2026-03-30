@@ -7,11 +7,13 @@ import Toast, { useToast } from "@/components/ui/Toast";
 import Button from "@/components/ui/Button";
 import {
   approveDeposit,
-  getAllDeposits,
   rejectDeposit,
   statusBadgeClass,
+  subscribeAllDeposits,
+  subscribeOrderSyncMetrics,
   timestampToDate,
   type DepositDoc,
+  type OrderSyncMetricDoc,
 } from "@/lib/db";
 import { formatCurrency } from "@/lib/constants";
 
@@ -34,6 +36,7 @@ function DepositsPageContent() {
   const [processingId, setProcessingId] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<TabKey>("pending");
   const [syncingOrders, setSyncingOrders] = useState(false);
+  const [syncMetrics, setSyncMetrics] = useState<OrderSyncMetricDoc | null>(null);
 
   const handleLoadDepositsError = useEffectEvent((err: unknown) => {
     console.error("Failed to load deposits:", err);
@@ -41,31 +44,40 @@ function DepositsPageContent() {
   });
 
   useEffect(() => {
-    let cancelled = false;
+    let receivedInitialSnapshot = false;
 
-    async function loadDeposits() {
-      try {
-        setLoading(true);
-        const nextDeposits = await getAllDeposits();
-
-        if (!cancelled) {
-          setDeposits(nextDeposits);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          handleLoadDepositsError(err);
-        }
-      } finally {
-        if (!cancelled) {
+    setLoading(true);
+    const unsubscribe = subscribeAllDeposits(
+      (nextDeposits) => {
+        setDeposits(nextDeposits);
+        if (!receivedInitialSnapshot) {
+          receivedInitialSnapshot = true;
           setLoading(false);
         }
+      },
+      (err) => {
+        handleLoadDepositsError(err);
+        setLoading(false);
       }
-    }
-
-    loadDeposits();
+    );
 
     return () => {
-      cancelled = true;
+      unsubscribe();
+    };
+  }, []);
+
+  useEffect(() => {
+    const unsubscribe = subscribeOrderSyncMetrics(
+      (nextMetrics) => {
+        setSyncMetrics(nextMetrics);
+      },
+      (err) => {
+        console.error("Failed to load order sync metrics:", err);
+      }
+    );
+
+    return () => {
+      unsubscribe();
     };
   }, []);
 
@@ -226,6 +238,39 @@ function DepositsPageContent() {
         </Button>
       </section>
 
+      <section className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <SyncMetricCard
+          label="Last Sync"
+          value={syncMetrics?.lastRunAt ? timestampToDate(syncMetrics.lastRunAt) : "Never"}
+          note={syncMetrics?.lastRunStatus === "failed" ? "Latest run failed" : "Latest sync timestamp"}
+          accent={syncMetrics?.lastRunStatus === "failed" ? "danger" : "default"}
+        />
+        <SyncMetricCard
+          label="Sync Source"
+          value={formatSyncSource(syncMetrics?.lastRunSource)}
+          note="GitHub Actions, secret ping, or admin manual trigger"
+        />
+        <SyncMetricCard
+          label="Refunded"
+          value={String(syncMetrics?.refunded ?? 0)}
+          note="Orders refunded in the most recent sync"
+          accent="success"
+        />
+        <SyncMetricCard
+          label="Awaiting"
+          value={String(syncMetrics?.awaitingProviderRefund ?? 0)}
+          note="Orders still waiting for provider confirmation"
+          accent="warning"
+        />
+      </section>
+
+      {syncMetrics?.lastError ? (
+        <div className="glass-card rounded-3xl border border-red-500/20 bg-red-500/5 p-5">
+          <p className="text-sm font-semibold text-red-300">Last sync error</p>
+          <p className="mt-2 text-sm text-red-200/80">{syncMetrics.lastError}</p>
+        </div>
+      ) : null}
+
       <section className="flex flex-wrap items-center gap-3">
         <TabButton
           label="Pending Approvals"
@@ -254,6 +299,42 @@ function DepositsPageContent() {
           onReject={handleReject}
         />
       )}
+    </div>
+  );
+}
+
+function formatSyncSource(source?: OrderSyncMetricDoc["lastRunSource"]): string {
+  if (source === "cron") return "GitHub Action / Cron";
+  if (source === "sync_secret") return "Secret Trigger";
+  if (source === "admin") return "Admin Manual Sync";
+  return "—";
+}
+
+function SyncMetricCard({
+  label,
+  value,
+  note,
+  accent = "default",
+}: {
+  label: string;
+  value: string;
+  note: string;
+  accent?: "default" | "success" | "warning" | "danger";
+}) {
+  const accentClasses = {
+    default: "border-[var(--color-border)] bg-[var(--color-bg-secondary)]/70",
+    success: "border-emerald-500/20 bg-emerald-500/10",
+    warning: "border-amber-500/20 bg-amber-500/10",
+    danger: "border-red-500/20 bg-red-500/10",
+  } as const;
+
+  return (
+    <div className={`glass-card rounded-3xl border p-5 ${accentClasses[accent]}`}>
+      <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
+        {label}
+      </p>
+      <p className="mt-2 text-lg font-semibold text-[var(--color-text-primary)]">{value}</p>
+      <p className="mt-2 text-sm text-[var(--color-text-muted)]">{note}</p>
     </div>
   );
 }

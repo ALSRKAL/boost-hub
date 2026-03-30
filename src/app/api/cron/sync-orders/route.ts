@@ -15,6 +15,8 @@ const ACTIVE_SYNCABLE_STATUSES = ["pending", "processing", "in_progress"] as con
 const REFUND_AWAITING_STATE = "awaiting_provider_refund";
 const REFUNDED_TO_USER_STATE = "refunded_to_user";
 
+type SyncRequestSource = "cron" | "sync_secret" | "admin";
+
 function chunk<T>(items: T[], size: number): T[][] {
   const chunks: T[][] = [];
 
@@ -50,8 +52,8 @@ function normalizeProviderStatus(status: string): {
   if (normalized === "canceled" || normalized === "cancelled") {
     return {
       orderStatus: "cancelled",
-      shouldRefund: false,
-      refundState: REFUND_AWAITING_STATE,
+      shouldRefund: true,
+      refundState: REFUNDED_TO_USER_STATE,
     };
   }
 
@@ -64,7 +66,11 @@ function normalizeProviderStatus(status: string): {
   }
 
   if (normalized === "failed") {
-    return { orderStatus: "failed", shouldRefund: false, refundState: "none" };
+    return {
+      orderStatus: "failed",
+      shouldRefund: true,
+      refundState: REFUNDED_TO_USER_STATE,
+    };
   }
 
   if (normalized === "processing") {
@@ -119,9 +125,36 @@ async function isAuthorizedRequest(request: NextRequest): Promise<boolean> {
   return isAuthorizedAdmin(request);
 }
 
+function getRequestSource(request: NextRequest): SyncRequestSource {
+  const cronSecret = process.env.CRON_SECRET;
+  const authHeader = request.headers.get("authorization");
+
+  if (cronSecret && authHeader === `Bearer ${cronSecret}`) {
+    return "cron";
+  }
+
+  const expectedSecret = process.env.SYNC_ORDERS_SECRET;
+  const providedSecret =
+    request.headers.get("x-sync-secret") ??
+    request.nextUrl.searchParams.get("secret");
+
+  if (expectedSecret && providedSecret === expectedSecret) {
+    return "sync_secret";
+  }
+
+  return "admin";
+}
+
+async function writeOrderSyncMetrics(payload: Record<string, unknown>) {
+  await getAdminDb()
+    .collection(COLLECTIONS.systemMetrics)
+    .doc("order_sync")
+    .set(payload, { merge: true });
+}
+
 async function loadSyncableOrders() {
   const adminDb = getAdminDb();
-  const [activeSnapshot, cancelledSnapshot] = await Promise.all([
+  const [activeSnapshot, cancelledSnapshot, failedSnapshot] = await Promise.all([
     adminDb
     .collection(COLLECTIONS.orders)
     .where("status", "in", [...ACTIVE_SYNCABLE_STATUSES])
@@ -130,9 +163,13 @@ async function loadSyncableOrders() {
       .collection(COLLECTIONS.orders)
       .where("status", "==", "cancelled")
       .get(),
+    adminDb
+      .collection(COLLECTIONS.orders)
+      .where("status", "==", "failed")
+      .get(),
   ]);
 
-  const docs = [...activeSnapshot.docs, ...cancelledSnapshot.docs];
+  const docs = [...activeSnapshot.docs, ...cancelledSnapshot.docs, ...failedSnapshot.docs];
 
   return docs
     .map((doc) => {
@@ -168,8 +205,8 @@ async function loadSyncableOrders() {
         (ACTIVE_SYNCABLE_STATUSES.includes(
           order.status as (typeof ACTIVE_SYNCABLE_STATUSES)[number]
         ) ||
-          (order.status === "cancelled" &&
-            order.refundState === REFUND_AWAITING_STATE))
+          ((order.status === "cancelled" || order.status === "failed") &&
+            order.refundState !== REFUNDED_TO_USER_STATE))
     );
 }
 
@@ -205,8 +242,8 @@ async function refundAndCancelOrder(order: {
       ACTIVE_SYNCABLE_STATUSES.includes(
         currentStatus as (typeof ACTIVE_SYNCABLE_STATUSES)[number]
       ) ||
-      (currentStatus === "cancelled" &&
-        currentRefundState === REFUND_AWAITING_STATE);
+      currentStatus === "cancelled" ||
+      currentStatus === "failed";
 
     if (!canStillRefund || currentRefundState === REFUNDED_TO_USER_STATE) {
       return;
@@ -300,6 +337,8 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
   }
 
+  const requestSource = getRequestSource(request);
+
   try {
     const orders = await loadSyncableOrders();
     const providerBalanceBefore = await fetchProviderBalance()
@@ -310,22 +349,20 @@ export async function GET(request: NextRequest) {
       });
 
     if (orders.length === 0) {
-      await getAdminDb()
-        .collection("system_metrics")
-        .doc("order_sync")
-        .set(
-          {
-            lastRunAt: FieldValue.serverTimestamp(),
-            checked: 0,
-            updated: 0,
-            refunded: 0,
-            skipped: 0,
-            awaitingProviderRefund: 0,
-            providerBalanceBefore,
-            providerBalanceAfter: providerBalanceBefore,
-          },
-          { merge: true }
-        );
+      await writeOrderSyncMetrics({
+        lastRunAt: FieldValue.serverTimestamp(),
+        lastSuccessfulRunAt: FieldValue.serverTimestamp(),
+        lastRunStatus: "success",
+        lastRunSource: requestSource,
+        lastError: null,
+        checked: 0,
+        updated: 0,
+        refunded: 0,
+        skipped: 0,
+        awaitingProviderRefund: 0,
+        providerBalanceBefore,
+        providerBalanceAfter: providerBalanceBefore,
+      });
 
       return NextResponse.json({
         success: true,
@@ -433,22 +470,20 @@ export async function GET(request: NextRequest) {
         return null;
       });
 
-    await getAdminDb()
-      .collection("system_metrics")
-      .doc("order_sync")
-      .set(
-        {
-          lastRunAt: FieldValue.serverTimestamp(),
-          checked: orders.length,
-          updated,
-          refunded,
-          skipped,
-          awaitingProviderRefund,
-          providerBalanceBefore,
-          providerBalanceAfter,
-        },
-        { merge: true }
-      );
+    await writeOrderSyncMetrics({
+      lastRunAt: FieldValue.serverTimestamp(),
+      lastSuccessfulRunAt: FieldValue.serverTimestamp(),
+      lastRunStatus: "success",
+      lastRunSource: requestSource,
+      lastError: null,
+      checked: orders.length,
+      updated,
+      refunded,
+      skipped,
+      awaitingProviderRefund,
+      providerBalanceBefore,
+      providerBalanceAfter,
+    });
 
     return NextResponse.json({
       success: true,
@@ -464,6 +499,18 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     console.error("Order sync failed:", error);
+
+    await writeOrderSyncMetrics({
+      lastRunAt: FieldValue.serverTimestamp(),
+      lastFailedAt: FieldValue.serverTimestamp(),
+      lastRunStatus: "failed",
+      lastRunSource: requestSource,
+      lastError:
+        error instanceof Error ? error.message : "Failed to sync orders.",
+    }).catch((metricsError) => {
+      console.error("Failed to write order sync metrics:", metricsError);
+    });
+
     return NextResponse.json(
       {
         error:

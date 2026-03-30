@@ -84,6 +84,26 @@ export interface UserDoc {
   createdAt?: Timestamp;
 }
 
+export type OrderSyncRunStatus = "success" | "failed";
+export type OrderSyncRunSource = "cron" | "sync_secret" | "admin";
+
+export interface OrderSyncMetricDoc {
+  id: string;
+  lastRunAt?: Timestamp;
+  lastSuccessfulRunAt?: Timestamp;
+  lastFailedAt?: Timestamp;
+  lastRunStatus?: OrderSyncRunStatus;
+  lastRunSource?: OrderSyncRunSource;
+  checked?: number;
+  updated?: number;
+  refunded?: number;
+  skipped?: number;
+  awaitingProviderRefund?: number;
+  providerBalanceBefore?: number | null;
+  providerBalanceAfter?: number | null;
+  lastError?: string | null;
+}
+
 // ============================================================
 // Deposit Queries
 // ============================================================
@@ -99,6 +119,27 @@ export async function getAllDeposits(): Promise<DepositDoc[]> {
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as DepositDoc));
+}
+
+export function subscribeAllDeposits(
+  onChange: (deposits: DepositDoc[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, COLLECTIONS.deposits),
+    orderBy("createdAt", "desc")
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() } as DepositDoc)));
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
 }
 
 /**
@@ -257,6 +298,38 @@ export async function getAllUsers(): Promise<UserDoc[]> {
 }
 
 /**
+ * Subscribe to all users (admin), newest first.
+ */
+export function subscribeAllUsers(
+  onChange: (users: UserDoc[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, COLLECTIONS.users),
+    orderBy("createdAt", "desc")
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      onChange(
+        snap.docs.map(
+          (d) =>
+            ({
+              uid: d.id,
+              ...d.data(),
+            }) as UserDoc
+        )
+      );
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
+}
+
+/**
  * Fetch orders for a specific user, newest first.
  */
 export async function getUserOrders(userId: string): Promise<OrderDoc[]> {
@@ -271,6 +344,32 @@ export async function getUserOrders(userId: string): Promise<OrderDoc[]> {
 }
 
 /**
+ * Subscribe to orders for a specific user, newest first.
+ */
+export function subscribeUserOrders(
+  userId: string,
+  onChange: (orders: OrderDoc[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, COLLECTIONS.orders),
+    where("userId", "==", userId),
+    orderBy("createdAt", "desc")
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() } as OrderDoc)));
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
+}
+
+/**
  * Fetch all orders (admin).
  */
 export async function getAllOrders(): Promise<OrderDoc[]> {
@@ -281,6 +380,53 @@ export async function getAllOrders(): Promise<OrderDoc[]> {
   );
   const snap = await getDocs(q);
   return snap.docs.map((d) => ({ id: d.id, ...d.data() } as OrderDoc));
+}
+
+export function subscribeAllOrders(
+  onChange: (orders: OrderDoc[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const db = getFirebaseDb();
+  const q = query(
+    collection(db, COLLECTIONS.orders),
+    orderBy("createdAt", "desc")
+  );
+
+  return onSnapshot(
+    q,
+    (snap) => {
+      onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() } as OrderDoc)));
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
+}
+
+export function subscribeOrderSyncMetrics(
+  onChange: (metrics: OrderSyncMetricDoc | null) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const db = getFirebaseDb();
+  const metricsRef = doc(db, COLLECTIONS.systemMetrics, "order_sync");
+
+  return onSnapshot(
+    metricsRef,
+    (snap) => {
+      if (!snap.exists()) {
+        onChange(null);
+        return;
+      }
+
+      onChange({
+        id: snap.id,
+        ...(snap.data() as Omit<OrderSyncMetricDoc, "id">),
+      });
+    },
+    (error) => {
+      onError?.(error);
+    }
+  );
 }
 
 // ============================================================

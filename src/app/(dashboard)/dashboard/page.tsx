@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { useAuth } from "@/context/AuthContext";
+import { useAuth, type UserProfile } from "@/context/AuthContext";
 import { formatCurrency } from "@/lib/constants";
 import {
-  getAllDeposits,
-  getAllOrders,
-  getUserOrders,
+  subscribeAllDeposits,
+  subscribeAllOrders,
+  subscribeOrderSyncMetrics,
+  subscribeUserOrders,
   statusBadgeClass,
   timestampToDate,
   type DepositDoc,
   type OrderDoc,
+  type OrderSyncMetricDoc,
 } from "@/lib/db";
 
 const REVENUE_STATUSES = new Set<OrderDoc["status"]>([
@@ -28,73 +30,117 @@ const ACTIVE_STATUSES = new Set<OrderDoc["status"]>([
 
 export default function DashboardPage() {
   const { user, userProfile } = useAuth();
+  const isAdmin = userProfile?.role === "admin";
+  const dashboardScopeKey = `${user?.uid ?? "guest"}:${isAdmin ? "admin" : "user"}`;
+
+  return (
+    <DashboardPageContent
+      key={dashboardScopeKey}
+      isAdmin={isAdmin}
+      userId={user?.uid ?? null}
+      userProfile={userProfile}
+    />
+  );
+}
+
+function DashboardPageContent({
+  isAdmin,
+  userId,
+  userProfile,
+}: {
+  isAdmin: boolean;
+  userId: string | null;
+  userProfile: UserProfile | null;
+}) {
   const [orders, setOrders] = useState<OrderDoc[]>([]);
   const [deposits, setDeposits] = useState<DepositDoc[]>([]);
+  const [syncMetrics, setSyncMetrics] = useState<OrderSyncMetricDoc | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
-  const isAdmin = userProfile?.role === "admin";
-
   useEffect(() => {
-    let cancelled = false;
-
-    async function loadDashboardData() {
-      const userId = user?.uid;
-
-      if (!userProfile || (!isAdmin && !userId)) {
-        setLoading(false);
-        return;
-      }
-
-      try {
-        setLoading(true);
-        setError(null);
-
-        if (isAdmin) {
-          const [allOrders, allDeposits] = await Promise.all([
-            getAllOrders(),
-            getAllDeposits(),
-          ]);
-
-          if (cancelled) return;
-
-          setOrders(allOrders);
-          setDeposits(allDeposits);
-          return;
-        }
-
-        if (!userId) {
-          setLoading(false);
-          return;
-        }
-
-        const userOrders = await getUserOrders(userId);
-
-        if (cancelled) return;
-
-        setOrders(userOrders);
-        setDeposits([]);
-      } catch (loadError) {
-        if (cancelled) return;
-        console.error("Failed to load dashboard data:", loadError);
-        setError(
-          loadError instanceof Error
-            ? loadError.message
-            : "Failed to load dashboard data."
-        );
-      } finally {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      }
+    if (!userProfile || (!isAdmin && !userId)) {
+      return;
     }
 
-    loadDashboardData();
+    let orderReady = false;
+    let depositReady = !isAdmin;
+
+    const finishLoadingIfReady = () => {
+      if (orderReady && depositReady) {
+        setLoading(false);
+      }
+    };
+
+    const unsubscribers: Array<() => void> = [];
+
+    if (isAdmin) {
+      unsubscribers.push(
+        subscribeAllOrders(
+          (nextOrders) => {
+            setOrders(nextOrders);
+            setError(null);
+            orderReady = true;
+            finishLoadingIfReady();
+          },
+          (loadError) => {
+            console.error("Failed to load admin orders:", loadError);
+            setError("Failed to load dashboard data.");
+            setLoading(false);
+          }
+        )
+      );
+
+      unsubscribers.push(
+        subscribeAllDeposits(
+          (nextDeposits) => {
+            setDeposits(nextDeposits);
+            setError(null);
+            depositReady = true;
+            finishLoadingIfReady();
+          },
+          (loadError) => {
+            console.error("Failed to load admin deposits:", loadError);
+            setError("Failed to load dashboard data.");
+            setLoading(false);
+          }
+        )
+      );
+
+      unsubscribers.push(
+        subscribeOrderSyncMetrics(
+          (nextMetrics) => {
+            setSyncMetrics(nextMetrics);
+          },
+          (loadError) => {
+            console.error("Failed to load order sync metrics:", loadError);
+          }
+        )
+      );
+    } else if (userId) {
+      unsubscribers.push(
+        subscribeUserOrders(
+          userId,
+          (nextOrders) => {
+            setOrders(nextOrders);
+            setDeposits([]);
+            setError(null);
+            orderReady = true;
+            finishLoadingIfReady();
+          },
+          (loadError) => {
+            console.error("Failed to load user orders:", loadError);
+            setError("Failed to load dashboard data.");
+            setLoading(false);
+          }
+        )
+      );
+    }
 
     return () => {
-      cancelled = true;
+      unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [isAdmin, user?.uid, userProfile]);
+  }, [isAdmin, userId, userProfile]);
 
   const revenueOrders = orders.filter((order) => REVENUE_STATUSES.has(order.status));
   const totalRevenue = revenueOrders.reduce(
@@ -230,7 +276,38 @@ export default function DashboardPage() {
               accent="amber"
             />
           </div>
+
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+            <ReportCard
+              label="Last Sync"
+              value={syncMetrics?.lastRunAt ? timestampToDate(syncMetrics.lastRunAt) : "Never"}
+              note={syncMetrics?.lastRunStatus === "failed" ? "Latest provider sync failed" : "Latest provider sync timestamp"}
+              accent={syncMetrics?.lastRunStatus === "failed" ? "amber" : "blue"}
+            />
+            <ReportCard
+              label="Sync Source"
+              value={formatSyncSource(syncMetrics?.lastRunSource)}
+              note="Shows whether the sync came from GitHub Action or an admin"
+              accent="violet"
+            />
+            <ReportCard
+              label="Refunded Orders"
+              value={String(syncMetrics?.refunded ?? 0)}
+              note="Orders refunded in the latest sync run"
+              accent="profit"
+            />
+            <ReportCard
+              label="Awaiting Refund"
+              value={String(syncMetrics?.awaitingProviderRefund ?? 0)}
+              note="Orders still waiting on provider refund confirmation"
+              accent="amber"
+            />
+          </div>
         </section>
+      ) : null}
+
+      {isAdmin && syncMetrics?.lastError ? (
+        <ErrorState message={`Latest sync error: ${syncMetrics.lastError}`} />
       ) : null}
 
       {error ? <ErrorState message={error} /> : null}
@@ -499,4 +576,11 @@ function ErrorState({ message }: { message: string }) {
       <p className="mt-2 text-sm text-red-200/80">{message}</p>
     </div>
   );
+}
+
+function formatSyncSource(source?: OrderSyncMetricDoc["lastRunSource"]): string {
+  if (source === "cron") return "GitHub Action / Cron";
+  if (source === "sync_secret") return "Secret Trigger";
+  if (source === "admin") return "Admin Manual Sync";
+  return "—";
 }
