@@ -1,26 +1,25 @@
 import {
-  addDoc,
   collection,
   doc,
   onSnapshot,
   query,
   where,
   orderBy,
-  getDocs,
-  writeBatch,
+  runTransaction,
   increment,
-  serverTimestamp,
   Timestamp,
   type Unsubscribe,
 } from "firebase/firestore";
 import { getFirebaseDb } from "@/lib/firebase";
-import { COLLECTIONS, type UserRole } from "@/lib/constants";
+import { COLLECTIONS, formatDateTime, type UserRole } from "@/lib/constants";
+import { roundMoney } from "@/lib/money";
 
 // ============================================================
-// Firestore Document Schemas (TypeScript Interfaces)
+// Document schemas
 // ============================================================
 
 export type DepositStatus = "pending" | "approved" | "rejected";
+
 export type OrderStatus =
   | "pending"
   | "processing"
@@ -35,11 +34,11 @@ export interface DepositDoc {
   userId: string;
   userEmail: string;
   amount: number;
-  utr: string; // Bank UTR / UPI Transaction Reference
+  utr: string;
   status: DepositStatus;
   createdAt: Timestamp;
   reviewedAt?: Timestamp;
-  reviewedBy?: string; // admin UID
+  reviewedBy?: string;
   notes?: string;
 }
 
@@ -50,30 +49,61 @@ export interface OrderDoc {
   serviceId: string;
   serviceName: string;
   category: string;
-  link: string; // Target URL (e.g. Instagram post URL)
+  link: string;
   quantity: number;
-  charge: number; // Amount charged from user balance
-  providerOrderId?: string; // ID returned by the SMM provider
-  providerCharge?: number; // Actual cost from provider (hidden from user)
+  charge: number;
+  providerOrderId?: string;
+  providerCharge?: number;
   supportsRefill?: boolean;
-  refillRequestId?: string;       // ID of the most recent refill request
+  supportsCancel?: boolean;
+  comments?: string;
+  runs?: number;
+  interval?: number;
+  refillRequestId?: string;
   refillStatus?: "requested" | "processing" | "completed" | "failed";
-  refillCount?: number;           // Total number of refills requested so far
-  refundState?: "none" | "awaiting_provider_refund" | "refunded_to_user";
+  refillCount?: number;
+  refillErrorMessage?: string | null;
+  refillErrorCode?: string | null;
+  refundState?:
+    | "none"
+    | "awaiting_provider_refund"
+    | "partially_refunded"
+    | "refunded_to_user";
   providerLastStatus?: string;
   providerRefundConfirmedAt?: Timestamp;
   refundedToUserAt?: Timestamp;
   refundedAmount?: number;
+  refundPartialRemains?: number;
+  refundAnomaly?: string | null;
+  providerError?: string | null;
+  providerErrorCode?: string | null;
+  providerErrorAt?: Timestamp;
+  dismissedProviderError?: string | null;
+  dismissedProviderErrorCode?: string | null;
+  reviewDismissedAt?: Timestamp;
+  adminResolution?: {
+    action: "refund_cancel" | "attach_provider" | "dismiss_review";
+    adminUid: string;
+    at: Timestamp;
+  };
+  previousProviderOrderId?: string;
+  needsReconciliation?: boolean;
+  lastSyncedAt?: Timestamp;
   completedAt?: Timestamp;
   refillWindowHours?: number | null;
-  refillAvailableAt?: Timestamp;  // When the FIRST refill becomes available (24h after completion)
+  refillAvailableAt?: Timestamp;
   status: OrderStatus;
   startCount?: number;
   remains?: number;
   createdAt: Timestamp;
   updatedAt?: Timestamp;
-  refillRequestedAt?: Timestamp;  // When the LAST refill was requested (for 24h cooldown)
+  refillRequestedAt?: Timestamp;
   refillUpdatedAt?: Timestamp;
+  cancelRequestedAt?: Timestamp;
+  cancelUpdatedAt?: Timestamp;
+  cancelErrorMessage?: string | null;
+  cancelErrorCode?: string | null;
+  requestId?: string;
 }
 
 export interface UserDoc {
@@ -98,6 +128,9 @@ export interface OrderSyncMetricDoc {
   checked?: number;
   updated?: number;
   refunded?: number;
+  refundedAmount?: number;
+  refundAnomalies?: number;
+  errors?: number;
   skipped?: number;
   awaitingProviderRefund?: number;
   providerBalanceBefore?: number | null;
@@ -106,76 +139,31 @@ export interface OrderSyncMetricDoc {
 }
 
 // ============================================================
-// Deposit Queries
+// Generic subscription helper
 // ============================================================
 
-/**
- * Fetch all deposits, newest first.
- */
-export async function getAllDeposits(): Promise<DepositDoc[]> {
-  const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.deposits),
-    orderBy("createdAt", "desc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as DepositDoc));
+function mapDocs<T>(snapshot: { docs: Array<{ id: string; data(): unknown }> }): T[] {
+  return snapshot.docs.map((item) => ({ id: item.id, ...(item.data() as object) }) as T);
 }
+
+// ============================================================
+// Deposits
+// ============================================================
 
 export function subscribeAllDeposits(
   onChange: (deposits: DepositDoc[]) => void,
   onError?: (error: Error) => void
 ): Unsubscribe {
   const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.deposits),
-    orderBy("createdAt", "desc")
-  );
+  const q = query(collection(db, COLLECTIONS.deposits), orderBy("createdAt", "desc"));
 
   return onSnapshot(
     q,
-    (snap) => {
-      onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() } as DepositDoc)));
-    },
-    (error) => {
-      onError?.(error);
-    }
+    (snap) => onChange(mapDocs<DepositDoc>(snap)),
+    (error) => onError?.(error)
   );
 }
 
-/**
- * Fetch all deposits with a given status (default: pending).
- */
-export async function getDeposits(
-  status: DepositStatus = "pending"
-): Promise<DepositDoc[]> {
-  const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.deposits),
-    where("status", "==", status),
-    orderBy("createdAt", "desc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as DepositDoc));
-}
-
-/**
- * Fetch all deposits for a specific user.
- */
-export async function getUserDeposits(userId: string): Promise<DepositDoc[]> {
-  const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.deposits),
-    where("userId", "==", userId),
-    orderBy("createdAt", "desc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as DepositDoc));
-}
-
-/**
- * Subscribe to deposits for a specific user, newest first.
- */
 export function subscribeUserDeposits(
   userId: string,
   onChange: (deposits: DepositDoc[]) => void,
@@ -190,163 +178,91 @@ export function subscribeUserDeposits(
 
   return onSnapshot(
     q,
-    (snap) => {
-      onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() } as DepositDoc)));
-    },
-    (error) => {
-      onError?.(error);
-    }
+    (snap) => onChange(mapDocs<DepositDoc>(snap)),
+    (error) => onError?.(error)
   );
 }
 
 /**
- * Create a new user deposit request.
- */
-export async function createDeposit(input: {
-  userId: string;
-  userEmail: string;
-  amount: number;
-  utr: string;
-}): Promise<void> {
-  const db = getFirebaseDb();
-  await addDoc(collection(db, COLLECTIONS.deposits), {
-    userId: input.userId,
-    userEmail: input.userEmail,
-    amount: input.amount,
-    utr: input.utr,
-    status: "pending" as DepositStatus,
-    createdAt: serverTimestamp(),
-  });
-}
-
-// ============================================================
-// Approve Deposit — Atomic Batch Write
-// ============================================================
-
-/**
- * Approve a pending deposit:
- * 1. Sets deposit status → "approved"
- * 2. Increments the user's balance by the deposit amount
- * Both writes happen atomically in a single batch.
+ * Approve a pending deposit and credit the user in one transaction.
+ * The status check inside the transaction makes retries idempotent.
  */
 export async function approveDeposit(
   deposit: DepositDoc,
   adminUid: string
 ): Promise<void> {
   const db = getFirebaseDb();
-  const batch = writeBatch(db);
-
-  // 1. Update deposit document
   const depositRef = doc(db, COLLECTIONS.deposits, deposit.id);
-  batch.update(depositRef, {
-    status: "approved" as DepositStatus,
-    reviewedAt: Timestamp.now(),
-    reviewedBy: adminUid,
-  });
-
-  // 2. Increment user balance
   const userRef = doc(db, COLLECTIONS.users, deposit.userId);
-  batch.update(userRef, {
-    balance: increment(deposit.amount),
-  });
 
-  await batch.commit();
+  await runTransaction(db, async (transaction) => {
+    const [depositSnap, userSnap] = await Promise.all([
+      transaction.get(depositRef),
+      transaction.get(userRef),
+    ]);
+
+    if (!depositSnap.exists()) {
+      throw new Error("This deposit no longer exists.");
+    }
+
+    if (depositSnap.get("status") !== "pending") {
+      throw new Error("This deposit has already been reviewed.");
+    }
+
+    if (!userSnap.exists()) {
+      throw new Error("The deposit owner no longer exists.");
+    }
+
+    const amount = Number(depositSnap.get("amount") ?? 0);
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      throw new Error("This deposit has an invalid amount.");
+    }
+
+    transaction.update(depositRef, {
+      status: "approved" satisfies DepositStatus,
+      reviewedAt: Timestamp.now(),
+      reviewedBy: adminUid,
+    });
+
+    transaction.update(userRef, {
+      balance: increment(roundMoney(amount)),
+    });
+  });
 }
 
-/**
- * Reject a pending deposit.
- */
 export async function rejectDeposit(
   depositId: string,
   adminUid: string,
   notes?: string
 ): Promise<void> {
   const db = getFirebaseDb();
-  const batch = writeBatch(db);
-
   const depositRef = doc(db, COLLECTIONS.deposits, depositId);
-  batch.update(depositRef, {
-    status: "rejected" as DepositStatus,
-    reviewedAt: Timestamp.now(),
-    reviewedBy: adminUid,
-    ...(notes ? { notes } : {}),
-  });
 
-  await batch.commit();
-}
+  await runTransaction(db, async (transaction) => {
+    const depositSnap = await transaction.get(depositRef);
 
-// ============================================================
-// Order Queries
-// ============================================================
-
-/**
- * Fetch all users, newest first.
- */
-export async function getAllUsers(): Promise<UserDoc[]> {
-  const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.users),
-    orderBy("createdAt", "desc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map(
-    (d) =>
-      ({
-        uid: d.id,
-        ...d.data(),
-      }) as UserDoc
-  );
-}
-
-/**
- * Subscribe to all users (admin), newest first.
- */
-export function subscribeAllUsers(
-  onChange: (users: UserDoc[]) => void,
-  onError?: (error: Error) => void
-): Unsubscribe {
-  const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.users),
-    orderBy("createdAt", "desc")
-  );
-
-  return onSnapshot(
-    q,
-    (snap) => {
-      onChange(
-        snap.docs.map(
-          (d) =>
-            ({
-              uid: d.id,
-              ...d.data(),
-            }) as UserDoc
-        )
-      );
-    },
-    (error) => {
-      onError?.(error);
+    if (!depositSnap.exists()) {
+      throw new Error("This deposit no longer exists.");
     }
-  );
+
+    if (depositSnap.get("status") !== "pending") {
+      throw new Error("This deposit has already been reviewed.");
+    }
+
+    transaction.update(depositRef, {
+      status: "rejected" satisfies DepositStatus,
+      reviewedAt: Timestamp.now(),
+      reviewedBy: adminUid,
+      ...(notes ? { notes } : {}),
+    });
+  });
 }
 
-/**
- * Fetch orders for a specific user, newest first.
- */
-export async function getUserOrders(userId: string): Promise<OrderDoc[]> {
-  const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.orders),
-    where("userId", "==", userId),
-    orderBy("createdAt", "desc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as OrderDoc));
-}
+// ============================================================
+// Orders
+// ============================================================
 
-/**
- * Subscribe to orders for a specific user, newest first.
- */
 export function subscribeUserOrders(
   userId: string,
   onChange: (orders: OrderDoc[]) => void,
@@ -361,26 +277,9 @@ export function subscribeUserOrders(
 
   return onSnapshot(
     q,
-    (snap) => {
-      onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() } as OrderDoc)));
-    },
-    (error) => {
-      onError?.(error);
-    }
+    (snap) => onChange(mapDocs<OrderDoc>(snap)),
+    (error) => onError?.(error)
   );
-}
-
-/**
- * Fetch all orders (admin).
- */
-export async function getAllOrders(): Promise<OrderDoc[]> {
-  const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.orders),
-    orderBy("createdAt", "desc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() } as OrderDoc));
 }
 
 export function subscribeAllOrders(
@@ -388,21 +287,39 @@ export function subscribeAllOrders(
   onError?: (error: Error) => void
 ): Unsubscribe {
   const db = getFirebaseDb();
-  const q = query(
-    collection(db, COLLECTIONS.orders),
-    orderBy("createdAt", "desc")
-  );
+  const q = query(collection(db, COLLECTIONS.orders), orderBy("createdAt", "desc"));
 
   return onSnapshot(
     q,
-    (snap) => {
-      onChange(snap.docs.map((d) => ({ id: d.id, ...d.data() } as OrderDoc)));
-    },
-    (error) => {
-      onError?.(error);
-    }
+    (snap) => onChange(mapDocs<OrderDoc>(snap)),
+    (error) => onError?.(error)
   );
 }
+
+// ============================================================
+// Users
+// ============================================================
+
+export function subscribeAllUsers(
+  onChange: (users: UserDoc[]) => void,
+  onError?: (error: Error) => void
+): Unsubscribe {
+  const db = getFirebaseDb();
+  const q = query(collection(db, COLLECTIONS.users), orderBy("createdAt", "desc"));
+
+  return onSnapshot(
+    q,
+    (snap) =>
+      onChange(
+        snap.docs.map((item) => ({ uid: item.id, ...item.data() }) as UserDoc)
+      ),
+    (error) => onError?.(error)
+  );
+}
+
+// ============================================================
+// System metrics
+// ============================================================
 
 export function subscribeOrderSyncMetrics(
   onChange: (metrics: OrderSyncMetricDoc | null) => void,
@@ -419,14 +336,9 @@ export function subscribeOrderSyncMetrics(
         return;
       }
 
-      onChange({
-        id: snap.id,
-        ...(snap.data() as Omit<OrderSyncMetricDoc, "id">),
-      });
+      onChange({ id: snap.id, ...(snap.data() as Omit<OrderSyncMetricDoc, "id">) });
     },
-    (error) => {
-      onError?.(error);
-    }
+    (error) => onError?.(error)
   );
 }
 
@@ -434,30 +346,12 @@ export function subscribeOrderSyncMetrics(
 // Helpers
 // ============================================================
 
-export function timestampToDate(ts: Timestamp | undefined): string {
+export function timestampToDate(ts: Timestamp | undefined | null): string {
   if (!ts) return "—";
-  return ts.toDate().toLocaleDateString("en-IN", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
 
-export function statusBadgeClass(status: string): string {
-  const map: Record<string, string> = {
-    pending: "bg-yellow-500/10 text-yellow-400 border-yellow-500/20",
-    approved: "bg-green-500/10 text-green-400 border-green-500/20",
-    rejected: "bg-red-500/10 text-red-400 border-red-500/20",
-    processing: "bg-blue-500/10 text-blue-400 border-blue-500/20",
-    in_progress: "bg-cyan-500/10 text-cyan-400 border-cyan-500/20",
-    completed: "bg-green-500/10 text-green-400 border-green-500/20",
-    cancelled: "bg-red-500/10 text-red-400 border-red-500/20",
-    partial: "bg-orange-500/10 text-orange-400 border-orange-500/20",
-    failed: "bg-red-500/10 text-red-400 border-red-500/20",
-  };
-  return (
-    map[status] ?? "bg-gray-500/10 text-gray-400 border-gray-500/20"
-  );
+  try {
+    return formatDateTime(ts.toDate());
+  } catch {
+    return "—";
+  }
 }

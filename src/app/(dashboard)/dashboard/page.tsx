@@ -1,26 +1,46 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { useAuth, type UserProfile } from "@/context/AuthContext";
-import { formatCurrency } from "@/lib/constants";
+import { useEffect, useMemo, useState } from "react";
+import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
+import {
+  formatCurrency,
+  formatNumber,
+  formatDate,
+  formatSignedCurrency,
+} from "@/lib/constants";
 import {
   subscribeAllDeposits,
   subscribeAllOrders,
   subscribeOrderSyncMetrics,
   subscribeUserOrders,
-  statusBadgeClass,
   timestampToDate,
   type DepositDoc,
   type OrderDoc,
   type OrderSyncMetricDoc,
 } from "@/lib/db";
-
-const REVENUE_STATUSES = new Set<OrderDoc["status"]>([
-  "completed",
-  "processing",
-  "in_progress",
-]);
+import { sumMoney } from "@/lib/money";
+import {
+  calculateOrderFinancials,
+  summariseOrderFinancials,
+} from "@/lib/financials";
+import { useAdminProviderInfo } from "@/components/admin/useAdminProviderInfo";
+import { StatusBadge } from "@/components/ui/Badge";
+import Icon from "@/components/ui/Icon";
+import Button from "@/components/ui/Button";
+import Toast, { useToast } from "@/components/ui/Toast";
+import {
+  EmptyState,
+  ErrorState,
+  Notice,
+  PageHeader,
+  SectionHeader,
+  SkeletonPanel,
+  SkeletonRows,
+  Stat,
+} from "@/components/ui/Primitives";
+import { needsProviderReview } from "@/lib/order-visibility";
 
 const ACTIVE_STATUSES = new Set<OrderDoc["status"]>([
   "pending",
@@ -28,49 +48,133 @@ const ACTIVE_STATUSES = new Set<OrderDoc["status"]>([
   "in_progress",
 ]);
 
+const SPENT_STATUSES = new Set<OrderDoc["status"]>([
+  "pending",
+  "processing",
+  "in_progress",
+  "completed",
+  "partial",
+]);
+
+const DEFAULT_PROFIT_MARGIN = 2;
+
+function isRefunded(order: OrderDoc): boolean {
+  return order.refundState === "refunded_to_user";
+}
+
+function formatSyncSource(source?: OrderSyncMetricDoc["lastRunSource"]): string {
+  if (source === "cron") return "Scheduled";
+  if (source === "sync_secret") return "Secret trigger";
+  if (source === "admin") return "Manual";
+  return "—";
+}
+
 export default function DashboardPage() {
   const { user, userProfile } = useAuth();
   const isAdmin = userProfile?.role === "admin";
-  const dashboardScopeKey = `${user?.uid ?? "guest"}:${isAdmin ? "admin" : "user"}`;
+  const scopeKey = `${user?.uid ?? "guest"}:${isAdmin ? "admin" : "user"}`;
 
   return (
-    <DashboardPageContent
-      key={dashboardScopeKey}
+    <DashboardContent
+      key={scopeKey}
       isAdmin={isAdmin}
       userId={user?.uid ?? null}
-      userProfile={userProfile}
+      balance={Number(userProfile?.balance ?? 0)}
     />
   );
 }
 
-function DashboardPageContent({
+function DashboardContent({
   isAdmin,
   userId,
-  userProfile,
+  balance,
 }: {
   isAdmin: boolean;
   userId: string | null;
-  userProfile: UserProfile | null;
+  balance: number;
 }) {
+  const { user } = useAuth();
+  const { t } = useLanguage();
+  const { toasts, addToast, removeToast } = useToast();
   const [orders, setOrders] = useState<OrderDoc[]>([]);
   const [deposits, setDeposits] = useState<DepositDoc[]>([]);
   const [syncMetrics, setSyncMetrics] = useState<OrderSyncMetricDoc | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
+  const provider = useAdminProviderInfo(isAdmin);
+  const [syncing, setSyncing] = useState(false);
+  const effectiveMargin = provider.profitMargin ?? DEFAULT_PROFIT_MARGIN;
+  const financials = useMemo(
+    () => summariseOrderFinancials(orders, effectiveMargin),
+    [orders, effectiveMargin]
+  );
+
+  async function handleSyncNow() {
+    if (!user || syncing) return;
+
+    try {
+      setSyncing(true);
+      const token = await user.getIdToken();
+      const response = await fetch("/api/cron/sync-orders", {
+        method: "GET",
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      const payload: unknown = await response.json();
+
+      if (!response.ok) {
+        const message =
+          payload &&
+          typeof payload === "object" &&
+          "error" in payload &&
+          typeof payload.error === "string"
+            ? payload.error
+            : "The provider sync failed.";
+        throw new Error(message);
+      }
+
+      const summary =
+        payload && typeof payload === "object" && "summary" in payload
+          ? (payload.summary as Record<string, unknown>)
+          : null;
+
+      if (summary) {
+        const errors = Number(summary.errors ?? 0);
+        const anomalies = Number(summary.refundAnomalies ?? 0);
+        addToast(
+          `Checked ${formatNumber(Number(summary.checked ?? 0))}, updated ${formatNumber(
+            Number(summary.updated ?? 0)
+          )}, refunded ${formatNumber(Number(summary.refunded ?? 0))}, anomalies ${formatNumber(
+            anomalies
+          )}, awaiting ${formatNumber(Number(summary.awaitingProviderRefund ?? 0))}.`,
+          errors > 0 ? "error" : "success"
+        );
+      } else {
+        addToast("Provider sync complete.", "success");
+      }
+
+      provider.refresh();
+    } catch (syncError) {
+      console.error("Failed to sync orders:", syncError);
+      addToast(
+        syncError instanceof Error ? syncError.message : "The provider sync failed.",
+        "error"
+      );
+    } finally {
+      setSyncing(false);
+    }
+  }
 
   useEffect(() => {
-    if (!userProfile || (!isAdmin && !userId)) {
-      return;
+    if (!isAdmin && !userId) return;
+
+    let ordersReady = false;
+    let depositsReady = !isAdmin;
+    let active = true;
+
+    function finishIfReady() {
+      if (active && ordersReady && depositsReady) setLoading(false);
     }
-
-    let orderReady = false;
-    let depositReady = !isAdmin;
-
-    const finishLoadingIfReady = () => {
-      if (orderReady && depositReady) {
-        setLoading(false);
-      }
-    };
 
     const unsubscribers: Array<() => void> = [];
 
@@ -79,13 +183,12 @@ function DashboardPageContent({
         subscribeAllOrders(
           (nextOrders) => {
             setOrders(nextOrders);
-            setError(null);
-            orderReady = true;
-            finishLoadingIfReady();
+            ordersReady = true;
+            finishIfReady();
           },
           (loadError) => {
             console.error("Failed to load admin orders:", loadError);
-            setError("Failed to load dashboard data.");
+            setError("The order ledger could not be loaded.");
             setLoading(false);
           }
         )
@@ -95,27 +198,21 @@ function DashboardPageContent({
         subscribeAllDeposits(
           (nextDeposits) => {
             setDeposits(nextDeposits);
-            setError(null);
-            depositReady = true;
-            finishLoadingIfReady();
+            depositsReady = true;
+            finishIfReady();
           },
           (loadError) => {
             console.error("Failed to load admin deposits:", loadError);
-            setError("Failed to load dashboard data.");
+            setError("The deposit ledger could not be loaded.");
             setLoading(false);
           }
         )
       );
 
       unsubscribers.push(
-        subscribeOrderSyncMetrics(
-          (nextMetrics) => {
-            setSyncMetrics(nextMetrics);
-          },
-          (loadError) => {
-            console.error("Failed to load order sync metrics:", loadError);
-          }
-        )
+        subscribeOrderSyncMetrics(setSyncMetrics, (loadError) => {
+          console.error("Failed to load sync metrics:", loadError);
+        })
       );
     } else if (userId) {
       unsubscribers.push(
@@ -123,14 +220,12 @@ function DashboardPageContent({
           userId,
           (nextOrders) => {
             setOrders(nextOrders);
-            setDeposits([]);
-            setError(null);
-            orderReady = true;
-            finishLoadingIfReady();
+            ordersReady = true;
+            finishIfReady();
           },
           (loadError) => {
             console.error("Failed to load user orders:", loadError);
-            setError("Failed to load dashboard data.");
+            setError("Your orders could not be loaded.");
             setLoading(false);
           }
         )
@@ -138,449 +233,542 @@ function DashboardPageContent({
     }
 
     return () => {
+      active = false;
       unsubscribers.forEach((unsubscribe) => unsubscribe());
     };
-  }, [isAdmin, userId, userProfile]);
+  }, [isAdmin, userId, reloadKey]);
 
-  const revenueOrders = orders.filter((order) => REVENUE_STATUSES.has(order.status));
-  const totalRevenue = revenueOrders.reduce(
-    (sum, order) => sum + Number(order.charge ?? 0),
-    0
-  );
-  const totalProviderCost = revenueOrders.reduce(
-    (sum, order) => sum + Number(order.providerCharge ?? 0),
-    0
-  );
-  const netProfit = totalRevenue - totalProviderCost;
-  const pendingDeposits = deposits.filter((deposit) => deposit.status === "pending").length;
+  const stats = useMemo(() => {
+    const activeOrders = orders.filter((order) => ACTIVE_STATUSES.has(order.status));
+    const completedOrders = orders.filter(
+      (order) => order.status === "completed" || order.status === "partial"
+    );
+    const spentOrders = orders.filter(
+      (order) => SPENT_STATUSES.has(order.status) && !isRefunded(order)
+    );
+    const spent = sumMoney(spentOrders.map((order) => Number(order.charge ?? 0)));
+    const pendingDeposits = deposits.filter(
+      (deposit) => deposit.status === "pending"
+    );
 
-  const userStats = [
-    {
-      label: "Balance",
-      value: formatCurrency(userProfile?.balance ?? 0),
-      icon: "💰",
-      gradient: "from-blue-500/12 to-cyan-500/8",
-      border: "border-blue-500/20",
-    },
-    {
-      label: isAdmin ? "Platform Orders" : "Total Orders",
-      value: orders.length.toLocaleString("en-IN"),
-      icon: "📦",
-      gradient: "from-fuchsia-500/12 to-pink-500/8",
-      border: "border-fuchsia-500/20",
-    },
-    {
-      label: isAdmin ? "Order Revenue" : "Total Spent",
-      value: formatCurrency(
-        orders.reduce((sum, order) => sum + Number(order.charge ?? 0), 0)
+    return {
+      activeOrders: activeOrders.length,
+      completedOrders: completedOrders.length,
+      spent,
+      pendingDeposits: pendingDeposits.length,
+      pendingDepositValue: sumMoney(
+        pendingDeposits.map((deposit) => Number(deposit.amount ?? 0))
       ),
-      icon: "💸",
-      gradient: "from-amber-500/12 to-orange-500/8",
-      border: "border-amber-500/20",
-    },
-    {
-      label: "Active Orders",
-      value: orders
-        .filter((order) => ACTIVE_STATUSES.has(order.status))
-        .length.toLocaleString("en-IN"),
-      icon: "⚡",
-      gradient: "from-emerald-500/12 to-teal-500/8",
-      border: "border-emerald-500/20",
-    },
-  ];
+    };
+  }, [orders, deposits]);
 
-  const recentOrders = orders.slice(0, 6);
-  const quickActions = [
-    { label: "New Order", href: "/new-order", icon: "🛒", desc: "Place a new order" },
-    { label: "Add Funds", href: "/add-funds", icon: "💰", desc: "Top up your balance" },
-    { label: "View Services", href: "/services", icon: "📋", desc: "Browse all services" },
-    ...(!isAdmin
-      ? [
-          {
-            label: "Call Support",
-            href: "tel:+967711114569",
-            icon: "📞",
-            desc: "Call: 711114569",
-            external: true,
-          },
-          {
-            label: "WhatsApp",
-            href: "https://wa.me/967711114569?text=Hello%2C%20I%20need%20help%20with%20my%20BoostHub%20account.",
-            icon: "💬",
-            desc: "Chat on WhatsApp",
-            external: true,
-          },
-        ]
-      : []),
-  ];
+  const recentOrders = orders.slice(0, 7);
+  const attentionOrders = useMemo(
+    () => orders.filter((order) => needsProviderReview(order)),
+    [orders]
+  );
+  const providerBalanceLabel = provider.loading
+    ? "…"
+    : provider.balance === null
+      ? "Unavailable"
+      : formatCurrency(provider.balance);
 
   return (
-    <div className="mx-auto max-w-7xl space-y-8">
-      <section>
-        <h1 className="text-2xl font-bold text-[var(--color-text-primary)] lg:text-3xl">
-          Welcome back
-          {userProfile?.displayName ? `, ${userProfile.displayName.split(" ")[0]}` : ""}
-        </h1>
-        <p className="mt-1 text-[var(--color-text-muted)]">
-          {isAdmin
-            ? "Track revenue, provider cost, profit, and urgent deposit approvals from one place."
-            : "Here&apos;s a clean overview of your balance, orders, and account activity."}
-        </p>
-      </section>
+    <div className="space-y-6">
+      <Toast toasts={toasts} onRemove={removeToast} />
+
+      <PageHeader
+        eyebrow={isAdmin ? t("Administration", "الإدارة") : t("Account", "الحساب")}
+        title={isAdmin ? t("Platform overview", "نظرة عامة على المنصة") : t("Overview", "نظرة عامة")}
+        description={
+          isAdmin
+            ? t(
+                "Live provider balance, selling margin, net revenue, and realized profit — computed from the order ledger.",
+                "رصيد المزود المباشر وهامش البيع وصافي الإيراد والربح المحقق — محسوبة من سجل الطلبات."
+              )
+            : t(
+                "Your balance, live orders, and recent activity. Prices are per 1,000 units.",
+                "رصيدك وطلباتك النشطة ونشاطك الأخير. الأسعار لكل 1000 وحدة."
+              )
+        }
+        actions={
+          <>
+            <Link href="/add-funds" className="btn btn-secondary btn-sm">
+              <Icon name="wallet" size={14} />
+              {t("Add funds", "إضافة رصيد")}
+            </Link>
+            <Link href="/new-order" className="btn btn-primary btn-sm">
+              <Icon name="plus" size={14} />
+              {t("New order", "طلب جديد")}
+            </Link>
+          </>
+        }
+      />
+
+      {error ? (
+        <ErrorState
+          message={error}
+          onRetry={() => {
+            setLoading(true);
+            setError(null);
+            setReloadKey((value) => value + 1);
+          }}
+        />
+      ) : null}
 
       {isAdmin ? (
-        <section className="space-y-4">
-          <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-            <div>
-              <div className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
-                Founder&apos;s Report
+        <>
+          <section className="space-y-3">
+            <SectionHeader
+              title={t("Financials", "المالية")}
+              description={t(
+                "Realized figures exclude refunded and canceled value. Provider cost is recognized only for delivered and active units.",
+                "الأرقام المحققة تستثني المبالغ المستردة والملغاة. تُحتسب تكلفة المزود فقط للوحدات المسلّمة والنشطة."
+              )}
+            />
+            {loading ? (
+              <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                {Array.from({ length: 8 }).map((_, index) => (
+                  <SkeletonPanel key={index} lines={3} />
+                ))}
               </div>
-              <h2 className="mt-3 text-xl font-semibold text-[var(--color-text-primary)]">
-                Profit dashboard
-              </h2>
-              <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-                Revenue is calculated from processing and completed orders only.
-              </p>
-            </div>
-            <Link
-              href="/admin/deposits"
-              className="inline-flex items-center justify-center rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-4 py-3 text-sm font-semibold text-[var(--color-text-primary)] transition hover:border-[var(--color-accent)]/40 hover:bg-[var(--color-bg-tertiary)]"
-            >
-              Review pending deposits
-            </Link>
-          </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+                <Stat
+                  label={t("Provider balance", "رصيد المزود")}
+                  value={providerBalanceLabel}
+                  tone={provider.error ? "danger" : "default"}
+                  note={
+                    provider.error
+                      ? provider.error
+                      : t(
+                          `Live ${provider.currency} balance`,
+                          `الرصيد المباشر ${provider.currency}`
+                        )
+                  }
+                />
+                <Stat
+                  label={t("Active profit margin", "هامش الربح الفعلي")}
+                  value={
+                    provider.profitMargin === null
+                      ? "—"
+                      : `${provider.profitMargin.toFixed(1)}x`
+                  }
+                  note={
+                    provider.profitPercent === null
+                      ? t("Selling multiplier", "معامل البيع")
+                      : t(
+                          `+${formatNumber(
+                            provider.profitPercent
+                          )}% over provider cost`,
+                          `+${formatNumber(
+                            provider.profitPercent
+                          )}% فوق تكلفة المزود`
+                        )
+                  }
+                />
+                <Stat
+                  label={t("Total net revenue", "إجمالي صافي الإيراد")}
+                  value={formatCurrency(financials.revenue)}
+                  note={t(
+                    "Customer charges net of refunds",
+                    "مدفوعات العملاء بعد خصم الاسترداد"
+                  )}
+                />
+                <Stat
+                  label={t("Realized net profit", "صافي الربح المحقق")}
+                  value={formatSignedCurrency(financials.netProfit)}
+                  tone={financials.netProfit >= 0 ? "positive" : "danger"}
+                  note={t(
+                    "Revenue minus delivered provider cost",
+                    "الإيراد ناقص تكلفة المزود المسلّمة"
+                  )}
+                />
+                <Stat
+                  label={t("Provider cost", "تكلفة المزود")}
+                  value={formatCurrency(financials.providerCost)}
+                  note={t("Delivered and active units", "الوحدات المسلّمة والنشطة")}
+                />
+                <Stat
+                  label={t("Refunded", "المسترد")}
+                  value={formatCurrency(financials.refunded)}
+                  note={t("Credited back to customers", "أُعيد إلى العملاء")}
+                />
+                <Stat
+                  label={t("Pending deposits", "إيداعات معلقة")}
+                  value={formatNumber(stats.pendingDeposits)}
+                  tone={stats.pendingDeposits > 0 ? "warning" : "default"}
+                  note={t(
+                    `${formatCurrency(stats.pendingDepositValue)} awaiting review`,
+                    `${formatCurrency(stats.pendingDepositValue)} بانتظار المراجعة`
+                  )}
+                />
+                <Stat
+                  label={t("Needs review", "بحاجة للمراجعة")}
+                  value={formatNumber(attentionOrders.length)}
+                  tone={attentionOrders.length > 0 ? "danger" : "default"}
+                  note={t("Provider or refund errors", "أخطاء المزود أو الاسترداد")}
+                />
+              </div>
+            )}
+          </section>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <ReportCard
-              label="Total Revenue"
-              value={formatCurrency(totalRevenue)}
-              note="Sum of charge from processing and completed orders"
-              accent="blue"
-            />
-            <ReportCard
-              label="Total Provider Cost"
-              value={formatCurrency(totalProviderCost)}
-              note="True provider-side cost saved per order"
-              accent="violet"
-            />
-            <ReportCard
-              label="NET PROFIT"
-              value={formatCurrency(netProfit)}
-              note="Revenue minus provider cost"
-              accent="profit"
-            />
-            <ReportCard
-              label="Pending Deposits"
-              value={pendingDeposits.toLocaleString("en-IN")}
-              note="Deposits waiting for admin action"
-              accent="amber"
-            />
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <ReportCard
-              label="Last Sync"
-              value={syncMetrics?.lastRunAt ? timestampToDate(syncMetrics.lastRunAt) : "Never"}
-              note={syncMetrics?.lastRunStatus === "failed" ? "Latest provider sync failed" : "Latest provider sync timestamp"}
-              accent={syncMetrics?.lastRunStatus === "failed" ? "amber" : "blue"}
-            />
-            <ReportCard
-              label="Sync Source"
-              value={formatSyncSource(syncMetrics?.lastRunSource)}
-              note="Shows whether the sync came from GitHub Action or an admin"
-              accent="violet"
-            />
-            <ReportCard
-              label="Refunded Orders"
-              value={String(syncMetrics?.refunded ?? 0)}
-              note="Orders refunded in the latest sync run"
-              accent="profit"
-            />
-            <ReportCard
-              label="Awaiting Refund"
-              value={String(syncMetrics?.awaitingProviderRefund ?? 0)}
-              note="Orders still waiting on provider refund confirmation"
-              accent="amber"
-            />
-          </div>
-        </section>
-      ) : null}
-
-      {isAdmin && syncMetrics?.lastError ? (
-        <ErrorState message={`Latest sync error: ${syncMetrics.lastError}`} />
-      ) : null}
-
-      {error ? <ErrorState message={error} /> : null}
-
-      <section className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {userStats.map((stat) => (
-          <div
-            key={stat.label}
-            className={`glass-card rounded-3xl border ${stat.border} bg-gradient-to-br ${stat.gradient} p-5 transition-transform duration-200 hover:scale-[1.01]`}
-          >
-            <div className="mb-4 flex items-center justify-between">
-              <span className="text-2xl">{stat.icon}</span>
-            </div>
-            <p className="text-lg sm:text-xl lg:text-2xl font-bold text-[var(--color-text-primary)] truncate">
-              {loading ? "…" : stat.value}
-            </p>
-            <p className="mt-1 text-sm text-[var(--color-text-muted)]">{stat.label}</p>
-          </div>
-        ))}
-      </section>
-
-      <section className="grid grid-cols-1 gap-4 md:grid-cols-3">
-        {quickActions.map((action) =>
-          action.external ? (
-            <a
-              key={action.label}
-              href={action.href}
-              className="glass-card group flex items-center gap-4 rounded-3xl p-5 transition-all duration-200 hover:scale-[1.01] hover:bg-[var(--color-bg-tertiary)]"
-            >
-              <span className="text-3xl transition-transform duration-200 group-hover:scale-110">
-                {action.icon}
-              </span>
+          <section className="panel">
+            <div className="panel-head">
               <div>
-                <p className="font-semibold text-[var(--color-text-primary)]">
-                  {action.label}
+                <h2 className="text-[13px] font-semibold text-ink">Provider sync</h2>
+                <p className="text-[11.5px] text-ink-mute">
+                  Status is written by the scheduled sync and manual triggers.
                 </p>
-                <p className="text-sm text-[var(--color-text-muted)]">{action.desc}</p>
               </div>
-            </a>
-          ) : (
-            <Link
-              key={action.label}
-              href={action.href}
-              className="glass-card group flex items-center gap-4 rounded-3xl p-5 transition-all duration-200 hover:scale-[1.01] hover:bg-[var(--color-bg-tertiary)]"
-            >
-              <span className="text-3xl transition-transform duration-200 group-hover:scale-110">
-                {action.icon}
-              </span>
-              <div>
-                <p className="font-semibold text-[var(--color-text-primary)]">
-                  {action.label}
-                </p>
-                <p className="text-sm text-[var(--color-text-muted)]">{action.desc}</p>
+              <div className="flex flex-wrap items-center gap-3">
+                <Link
+                  href="/admin/orders"
+                  className="link-quiet text-[12px] font-medium"
+                >
+                  All orders
+                </Link>
+                <Button
+                  variant="secondary"
+                  size="sm"
+                  isLoading={syncing}
+                  onClick={handleSyncNow}
+                  leadingIcon={<Icon name="refresh" size={13} />}
+                >
+                  Sync now
+                </Button>
               </div>
-            </Link>
-          )
-        )}
-      </section>
+            </div>
+            <div className="grid grid-cols-2 gap-px bg-line sm:grid-cols-3 lg:grid-cols-5">
+              <SyncItem
+                label="Last run"
+                value={
+                  syncMetrics?.lastRunAt
+                    ? timestampToDate(syncMetrics.lastRunAt)
+                    : "Never"
+                }
+              />
+              <SyncItem label="Source" value={formatSyncSource(syncMetrics?.lastRunSource)} />
+              <SyncItem
+                label="Provider balance"
+                value={providerBalanceLabel}
+                tone={provider.error ? "danger" : undefined}
+              />
+              <SyncItem label="Refunded" value={formatNumber(syncMetrics?.refunded ?? 0)} />
+              <SyncItem
+                label="Awaiting refund"
+                value={formatNumber(syncMetrics?.awaitingProviderRefund ?? 0)}
+                tone={
+                  (syncMetrics?.awaitingProviderRefund ?? 0) > 0 ? "warning" : undefined
+                }
+              />
+            </div>
+            {syncMetrics?.lastError ? (
+              <div className="border-t border-line px-4 py-2.5">
+                <Notice tone="danger">{syncMetrics.lastError}</Notice>
+              </div>
+            ) : null}
+          </section>
 
-      <section className="glass-card rounded-3xl p-6 lg:p-7">
-        <div className="flex flex-col gap-2 lg:flex-row lg:items-end lg:justify-between">
-          <div>
-            <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">
-              {isAdmin ? "Recent Platform Orders" : "Recent Orders"}
-            </h2>
-            <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-              {isAdmin
-                ? "A quick pulse on the latest orders and their current status."
-                : "Your latest orders and their delivery status."}
-            </p>
-          </div>
-          <Link
-            href="/orders"
-            className="text-sm font-semibold text-[var(--color-accent)] transition hover:text-[var(--color-accent-hover)]"
-          >
-            Open orders page
-          </Link>
+          {attentionOrders.length > 0 ? (
+            <section className="panel overflow-hidden">
+              <div className="panel-head">
+                <div>
+                  <h2 className="text-[13px] font-semibold text-ink">
+                    Needs review
+                  </h2>
+                  <p className="text-[11.5px] text-ink-mute">
+                    Provider errors, unknown outcomes, and refund anomalies.
+                  </p>
+                </div>
+                <Link
+                  href="/admin/orders"
+                  className="link-quiet text-[12px] font-medium"
+                >
+                  Open all orders
+                </Link>
+              </div>
+              <div className="divide-y divide-line">
+                {attentionOrders.slice(0, 6).map((order) => (
+                  <div
+                    key={order.id}
+                    className="flex flex-wrap items-center justify-between gap-2 px-4 py-2.5"
+                  >
+                    <div className="min-w-0">
+                      <p className="num-sm text-[12px] text-ink">
+                        {order.providerOrderId ?? order.id.slice(0, 10)}
+                      </p>
+                      <p className="mt-0.5 max-w-[360px] truncate text-[11px] text-ink-mute">
+                        {order.serviceName || `Service ${order.serviceId}`} ·{" "}
+                        {order.userEmail || order.userId}
+                      </p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      {order.providerErrorCode ? (
+                        <span className="status status-danger">
+                          {order.providerErrorCode}
+                        </span>
+                      ) : order.refundAnomaly ? (
+                        <span className="status status-warning">REFUND_ANOMALY</span>
+                      ) : null}
+                      <StatusBadge status={order.status} />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          ) : null}
+        </>
+      ) : (
+        <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">
+          <Stat
+            label={t("Balance", "الرصيد")}
+            value={formatCurrency(balance)}
+            note={t("Available to spend", "متاح للإنفاق")}
+          />
+          <Stat
+            label={t("Active orders", "طلبات نشطة")}
+            value={formatNumber(stats.activeOrders)}
+            note={t("Pending or in progress", "قيد الانتظار أو التنفيذ")}
+          />
+          <Stat
+            label={t("Completed", "مكتملة")}
+            value={formatNumber(stats.completedOrders)}
+            note={t("Completed or partial", "مكتملة أو جزئية")}
+          />
+          <Stat
+            label={t("Total spent", "إجمالي الإنفاق")}
+            value={formatCurrency(stats.spent)}
+            note={t("Refunds excluded", "باستثناء المسترد")}
+          />
         </div>
+      )}
+
+      <section className="space-y-3">
+        <SectionHeader
+          title={
+            isAdmin
+              ? t("Recent platform orders", "أحدث طلبات المنصة")
+              : t("Recent orders", "أحدث الطلبات")
+          }
+          description={
+            isAdmin
+              ? t("Latest activity across every customer.", "أحدث النشاط عبر جميع العملاء.")
+              : t("The last orders placed from this account.", "آخر الطلبات من هذا الحساب.")
+          }
+          actions={
+            <Link href="/orders" className="link-quiet text-[12px] font-medium">
+              {t("View all orders", "عرض كل الطلبات")}
+            </Link>
+          }
+        />
 
         {loading ? (
-          <RecentOrdersSkeleton />
+          <SkeletonRows rows={5} />
         ) : recentOrders.length === 0 ? (
-          <div className="mt-6 rounded-3xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/60 p-8 text-center">
-            <span className="mb-3 block text-4xl">📭</span>
-            <p className="text-[var(--color-text-muted)]">
-              No orders yet. Start by placing your first order.
-            </p>
-          </div>
+          <EmptyState
+            icon="receipt"
+            title="No orders yet"
+            description={
+              isAdmin
+                ? "Customer orders will appear here once they are placed."
+                : "Start from the catalog and place your first order."
+            }
+            action={
+              <Link href="/new-order" className="btn btn-primary btn-sm">
+                <Icon name="plus" size={14} />
+                Place an order
+              </Link>
+            }
+          />
         ) : (
-          <div className="mt-6 overflow-hidden rounded-3xl border border-[var(--color-border)]">
-            <div className="hidden overflow-x-auto lg:block">
-              <table className="w-full min-w-[860px]">
+          <div className="panel overflow-hidden">
+            <div className="scroll-x hidden md:block">
+              <table
+                className={`data-table ${
+                  isAdmin ? "min-w-[980px]" : "min-w-[760px]"
+                }`}
+              >
                 <thead>
-                  <tr className="bg-[var(--color-bg-tertiary)]/55">
-                    <th className="px-5 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                      Provider ID
-                    </th>
-                    <th className="px-5 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                      Service
-                    </th>
-                    <th className="px-5 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                      Quantity
-                    </th>
-                    <th className="px-5 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                      Charge
-                    </th>
-                    <th className="px-5 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                      Date
-                    </th>
-                    <th className="px-5 py-4 text-right text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                      Status
-                    </th>
+                  <tr>
+                    <th>{t("Order", "الطلب")}</th>
+                    <th>{t("Service", "الخدمة")}</th>
+                    {isAdmin ? <th>{t("Customer", "العميل")}</th> : null}
+                    <th className="cell-end">{t("Quantity", "الكمية")}</th>
+                    <th className="cell-end">{t("Charge", "المبلغ")}</th>
+                    {isAdmin ? (
+                      <>
+                        <th className="cell-end">
+                          {t("Provider cost", "تكلفة المزود")}
+                        </th>
+                        <th className="cell-end">{t("Net profit", "صافي الربح")}</th>
+                      </>
+                    ) : null}
+                    <th>{t("Date", "التاريخ")}</th>
+                    <th>{t("Status", "الحالة")}</th>
                   </tr>
                 </thead>
                 <tbody>
-                  {recentOrders.map((order, index) => (
-                    <tr
-                      key={order.id}
-                      className={`border-t border-[var(--color-border)]/70 ${
-                        index % 2 === 0 ? "bg-black/5" : ""
-                      }`}
-                    >
-                      <td className="px-5 py-4 text-sm text-[var(--color-text-secondary)]">
-                        {order.providerOrderId || order.id}
-                      </td>
-                      <td className="px-5 py-4">
-                        <div className="space-y-1">
-                          <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                            {order.serviceName || `Service #${order.serviceId}`}
+                  {recentOrders.map((order) => {
+                    const money = calculateOrderFinancials(
+                      order,
+                      effectiveMargin
+                    );
+
+                    return (
+                      <tr key={order.id}>
+                        <td>
+                          <span className="num-sm text-ink">
+                            {order.providerOrderId ?? order.id.slice(0, 8)}
+                          </span>
+                        </td>
+                        <td>
+                          <p className="cell-strong max-w-[280px] truncate">
+                            {order.serviceName || `Service ${order.serviceId}`}
                           </p>
-                          <p className="text-xs text-[var(--color-text-muted)]">
+                          <p className="mt-0.5 text-[11.5px] text-ink-mute">
                             {order.category || "Uncategorized"}
                           </p>
-                        </div>
-                      </td>
-                      <td className="px-5 py-4 text-sm text-[var(--color-text-secondary)]">
-                        {order.quantity.toLocaleString("en-IN")}
-                      </td>
-                      <td className="px-5 py-4 text-sm font-semibold text-[var(--color-text-primary)]">
-                        {formatCurrency(Number(order.charge ?? 0))}
-                      </td>
-                      <td className="px-5 py-4 text-sm text-[var(--color-text-secondary)]">
-                        {timestampToDate(order.createdAt)}
-                      </td>
-                      <td className="px-5 py-4 text-right">
-                        <span
-                          className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusBadgeClass(
-                            order.status
-                          )}`}
-                        >
-                          {order.status.replace(/_/g, " ")}
-                        </span>
-                      </td>
-                    </tr>
-                  ))}
+                        </td>
+                        {isAdmin ? (
+                          <td className="max-w-[180px] truncate">
+                            {order.userEmail || order.userId}
+                          </td>
+                        ) : null}
+                        <td className="cell-end cell-num">
+                          {formatNumber(order.quantity)}
+                        </td>
+                        <td className="cell-end cell-num">
+                          {formatCurrency(Number(order.charge ?? 0))}
+                        </td>
+                        {isAdmin ? (
+                          <>
+                            <td className="cell-end cell-num">
+                              {formatCurrency(money.providerCost)}
+                            </td>
+                            <td
+                              className={`cell-end cell-num ${
+                                money.netProfit < 0 ? "text-danger" : ""
+                              }`}
+                            >
+                              {formatSignedCurrency(money.netProfit)}
+                            </td>
+                          </>
+                        ) : null}
+                        <td className="cell-date whitespace-nowrap">
+                          {formatDate(order.createdAt?.toDate?.() ?? null)}
+                        </td>
+                        <td>
+                          <StatusBadge status={order.status} />
+                        </td>
+                      </tr>
+                    );
+                  })}
                 </tbody>
               </table>
             </div>
 
-            <div className="grid gap-3 p-4 lg:hidden">
-              {recentOrders.map((order) => (
-                <article
-                  key={order.id}
-                  className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/60 p-4"
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div className="min-w-0">
-                      <p className="text-xs uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
-                        {order.providerOrderId || order.id}
-                      </p>
-                      <h3 className="mt-1 text-base font-semibold text-[var(--color-text-primary)]">
-                        {order.serviceName || `Service #${order.serviceId}`}
-                      </h3>
-                    </div>
-                    <span
-                      className={`inline-flex rounded-full border px-3 py-1 text-xs font-semibold capitalize ${statusBadgeClass(
-                        order.status
-                      )}`}
-                    >
-                      {order.status.replace(/_/g, " ")}
-                    </span>
-                  </div>
+            <div className="divide-y divide-line md:hidden">
+              {recentOrders.map((order) => {
+                const money = calculateOrderFinancials(order, effectiveMargin);
 
-                  <div className="mt-4 grid grid-cols-2 gap-3">
-                    <MiniStat
-                      label="Charge"
-                      value={formatCurrency(Number(order.charge ?? 0))}
-                    />
-                    <MiniStat
-                      label="Quantity"
-                      value={order.quantity.toLocaleString("en-IN")}
-                    />
-                    <MiniStat label="Date" value={timestampToDate(order.createdAt)} />
-                    <MiniStat label="Category" value={order.category || "—"} />
+                return (
+                  <div key={order.id} className="p-3.5">
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <p className="num-sm text-ink">
+                          {order.providerOrderId ?? order.id.slice(0, 8)}
+                        </p>
+                        <p className="mt-1 truncate text-[13px] font-medium text-ink">
+                          {order.serviceName || `Service ${order.serviceId}`}
+                        </p>
+                        {isAdmin ? (
+                          <p className="mt-0.5 truncate text-[11.5px] text-ink-mute">
+                            {order.userEmail || order.userId}
+                          </p>
+                        ) : null}
+                      </div>
+                      <StatusBadge status={order.status} />
+                    </div>
+                    <div className="mt-2.5 flex items-end justify-between gap-3">
+                      <span className="text-[11.5px] text-ink-mute">
+                        {formatDate(order.createdAt?.toDate?.() ?? null)} ·{" "}
+                        {formatNumber(order.quantity)} units
+                      </span>
+                      <div className="text-right">
+                        <p className="num-sm font-semibold text-ink">
+                          {formatCurrency(Number(order.charge ?? 0))}
+                        </p>
+                        {isAdmin ? (
+                          <p
+                            className={`num-sm text-[11px] ${
+                              money.netProfit < 0
+                                ? "text-danger"
+                                : "text-ink-mute"
+                            }`}
+                          >
+                            {t("Profit", "الربح")}{" "}
+                            {formatSignedCurrency(money.netProfit)}
+                          </p>
+                        ) : null}
+                      </div>
+                    </div>
                   </div>
-                </article>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}
       </section>
+
+      {!isAdmin ? (
+        <section className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
+          <p className="text-[11.5px] text-ink-mute">
+            Need help with an order? Contact support with the order ID.
+          </p>
+          <div className="flex items-center gap-3">
+            <a href="tel:+967711114569" className="link-quiet text-[12px] font-medium">
+              Call 711114569
+            </a>
+            <a
+              href="https://wa.me/967711114569"
+              target="_blank"
+              rel="noreferrer"
+              className="link-quiet flex items-center gap-1 text-[12px] font-medium"
+            >
+              WhatsApp
+              <Icon name="external" size={12} />
+            </a>
+          </div>
+        </section>
+      ) : null}
     </div>
   );
 }
 
-function ReportCard({
+function SyncItem({
   label,
   value,
-  note,
-  accent,
+  tone,
 }: {
   label: string;
   value: string;
-  note: string;
-  accent: "blue" | "violet" | "profit" | "amber";
+  tone?: "warning" | "danger";
 }) {
-  const accentClasses = {
-    blue: "border-sky-500/20 bg-gradient-to-br from-sky-500/12 to-cyan-500/6 text-sky-100",
-    violet:
-      "border-violet-500/20 bg-gradient-to-br from-violet-500/12 to-fuchsia-500/6 text-violet-100",
-    profit:
-      "border-emerald-500/25 bg-gradient-to-br from-emerald-500/20 via-lime-500/12 to-amber-500/10 text-emerald-50",
-    amber:
-      "border-amber-500/20 bg-gradient-to-br from-amber-500/14 to-orange-500/8 text-amber-50",
-  } as const;
-
   return (
-    <div className={`glass-card rounded-3xl border p-5 ${accentClasses[accent]}`}>
-      <p className="text-[11px] uppercase tracking-[0.18em] text-white/60">{label}</p>
-      <p className="mt-3 text-xl sm:text-2xl lg:text-3xl font-bold break-all">{value}</p>
-      <p className="mt-3 text-sm text-white/70">{note}</p>
-    </div>
-  );
-}
-
-function MiniStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-[var(--color-border)] bg-black/10 px-3 py-3">
-      <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">
+    <div className="bg-surface px-4 py-3">
+      <p className="rule-label">{label}</p>
+      <p
+        className={`mt-1.5 truncate text-[12.5px] font-medium ${
+          tone === "warning"
+            ? "text-warning"
+            : tone === "danger"
+              ? "text-danger"
+              : "text-ink"
+        }`}
+      >
         {value}
       </p>
     </div>
   );
-}
-
-function RecentOrdersSkeleton() {
-  return (
-    <div className="mt-6 animate-pulse space-y-3">
-      {Array.from({ length: 4 }).map((_, index) => (
-        <div
-          key={index}
-          className="h-20 rounded-2xl border border-[var(--color-border)] bg-white/5"
-        />
-      ))}
-    </div>
-  );
-}
-
-function ErrorState({ message }: { message: string }) {
-  return (
-    <div className="glass-card rounded-3xl border border-red-500/20 bg-red-500/5 p-5">
-      <p className="text-sm font-semibold text-red-300">Dashboard data error</p>
-      <p className="mt-2 text-sm text-red-200/80">{message}</p>
-    </div>
-  );
-}
-
-function formatSyncSource(source?: OrderSyncMetricDoc["lastRunSource"]): string {
-  if (source === "cron") return "GitHub Action / Cron";
-  if (source === "sync_secret") return "Secret Trigger";
-  if (source === "admin") return "Admin Manual Sync";
-  return "—";
 }

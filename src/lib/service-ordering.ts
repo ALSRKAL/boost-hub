@@ -1,3 +1,5 @@
+import type { PlatformKey } from "@/lib/service-platforms";
+
 export interface ServiceLike {
   name: string;
   category: string;
@@ -11,7 +13,14 @@ export interface ServiceSection<T extends ServiceLike> {
   services: T[];
 }
 
-const SERVICE_SECTION_RULES = [
+interface ServiceSectionRule {
+  key: string;
+  label: string;
+  description: string;
+  patterns: RegExp[];
+}
+
+const DEFAULT_SERVICE_SECTION_RULES: ServiceSectionRule[] = [
   {
     key: "followers",
     label: "Followers / Subscribers",
@@ -61,35 +70,120 @@ const SERVICE_SECTION_RULES = [
     key: "story",
     label: "Stories / Live / Polls",
     description: "Short-lived or live interaction service types.",
-    patterns: [/\bstory\b/i, /\blive\b/i, /\bpoll(s)?\b/i, /\bvote(s)?\b/i],
+    patterns: [/\bstor(y|ies)\b/i, /\blive\b/i, /\bpoll(s)?\b/i, /\bvote(s)?\b/i],
   },
 ];
+
+const INSTAGRAM_SERVICE_SECTION_RULES: ServiceSectionRule[] = [
+  {
+    key: "followers",
+    label: "Followers",
+    description: "Profile growth services focused on Instagram followers.",
+    patterns: [/\bfollower(s)?\b/i],
+  },
+  {
+    key: "story",
+    label: "Stories / Live",
+    description: "Story views, story engagement, polls, and live interactions.",
+    patterns: [/\bstor(y|ies)\b/i, /\blive\b/i, /\bpoll(s)?\b/i, /\bvote(s)?\b/i],
+  },
+  {
+    key: "reels",
+    label: "Reels",
+    description: "Reels-focused reach and engagement services.",
+    patterns: [/\breel(s)?\b/i],
+  },
+  {
+    key: "posts",
+    label: "Posts",
+    description: "Feed post, photo, and carousel related offers.",
+    patterns: [/\bpost(s)?\b/i, /\bphoto(s)?\b/i, /\bcarousel(s)?\b/i],
+  },
+  {
+    key: "likes",
+    label: "Likes / Reactions",
+    description: "General Instagram engagement boosts for likes and reactions.",
+    patterns: [/\blike(s)?\b/i, /\breaction(s)?\b/i],
+  },
+  {
+    key: "views",
+    label: "Views / Reach",
+    description: "Views, impressions, plays, and reach style services.",
+    patterns: [
+      /\bview(s)?\b/i,
+      /\bimpression(s)?\b/i,
+      /\breach\b/i,
+      /\bwatch\s*time\b/i,
+      /\bplay(s)?\b/i,
+    ],
+  },
+  {
+    key: "comments",
+    label: "Comments",
+    description: "Comment-driven Instagram services.",
+    patterns: [/\bcomment(s)?\b/i],
+  },
+  {
+    key: "shares",
+    label: "Shares / Saves",
+    description: "Saves, shares, reposts, and similar actions.",
+    patterns: [/\bshare(s|d)?\b/i, /\bsave(s|d)?\b/i, /\brepost(s|ed)?\b/i],
+  },
+];
+
+function getServiceSectionRules(platformKey?: PlatformKey | null): ServiceSectionRule[] {
+  if (platformKey === "instagram") {
+    return INSTAGRAM_SERVICE_SECTION_RULES;
+  }
+
+  return DEFAULT_SERVICE_SECTION_RULES;
+}
 
 function getServicePrice(service: ServiceLike): number {
   return Number.parseFloat(service.price) || 0;
 }
 
-function getServiceSectionKey(service: ServiceLike): string {
-  const haystack = `${service.name} ${service.category}`.toLowerCase();
-  const matchedRule = SERVICE_SECTION_RULES.find((rule) =>
+function matchSectionKey(value: string, rules: ServiceSectionRule[]): string | null {
+  const haystack = value.trim().toLowerCase();
+
+  if (!haystack) return null;
+
+  const matchedRule = rules.find((rule) =>
     rule.patterns.some((pattern) => pattern.test(haystack))
   );
 
-  return matchedRule?.key ?? "other";
+  return matchedRule?.key ?? null;
 }
 
-function getSectionPriority(sectionKey: string): number {
-  const index = SERVICE_SECTION_RULES.findIndex((rule) => rule.key === sectionKey);
-  return index === -1 ? SERVICE_SECTION_RULES.length : index;
+function getServiceSectionKey(
+  service: ServiceLike,
+  rules: ServiceSectionRule[]
+): string {
+  // The service name is the reliable signal. Category text often contains
+  // marketing copy ("Diwali Sale is Live") that would misclassify a Reels or
+  // Views service as a Stories/Live service.
+  return (
+    matchSectionKey(service.name, rules) ??
+    matchSectionKey(service.category, rules) ??
+    "other"
+  );
+}
+
+function getSectionPriority(sectionKey: string, rules: ServiceSectionRule[]): number {
+  const index = rules.findIndex((rule) => rule.key === sectionKey);
+  return index === -1 ? rules.length : index;
 }
 
 export function sortServicesByPriorityAndPrice<T extends ServiceLike>(
-  services: T[]
+  services: T[],
+  platformKey?: PlatformKey | null
 ): T[] {
+  const rules = getServiceSectionRules(platformKey);
+
   return [...services].sort((left, right) => {
     const sectionDifference =
-      getSectionPriority(getServiceSectionKey(left)) -
-      getSectionPriority(getServiceSectionKey(right));
+      getSectionPriority(getServiceSectionKey(left, rules), rules) -
+      getSectionPriority(getServiceSectionKey(right, rules), rules);
 
     if (sectionDifference !== 0) {
       return sectionDifference;
@@ -106,12 +200,14 @@ export function sortServicesByPriorityAndPrice<T extends ServiceLike>(
 }
 
 export function getServiceSections<T extends ServiceLike>(
-  services: T[]
+  services: T[],
+  platformKey?: PlatformKey | null
 ): ServiceSection<T>[] {
+  const rules = getServiceSectionRules(platformKey);
   const buckets = new Map<string, T[]>();
 
   for (const service of services) {
-    const bucketKey = getServiceSectionKey(service);
+    const bucketKey = getServiceSectionKey(service, rules);
     const existing = buckets.get(bucketKey) ?? [];
     existing.push(service);
     buckets.set(bucketKey, existing);
@@ -119,7 +215,7 @@ export function getServiceSections<T extends ServiceLike>(
 
   const orderedSections: ServiceSection<T>[] = [];
 
-  for (const rule of SERVICE_SECTION_RULES) {
+  for (const rule of rules) {
     const sectionServices = buckets.get(rule.key);
 
     if (!sectionServices || sectionServices.length === 0) {
@@ -130,7 +226,7 @@ export function getServiceSections<T extends ServiceLike>(
       key: rule.key,
       label: rule.label,
       description: rule.description,
-      services: sortServicesByPriorityAndPrice(sectionServices),
+      services: sortServicesByPriorityAndPrice(sectionServices, platformKey),
     });
   }
 
@@ -141,7 +237,7 @@ export function getServiceSections<T extends ServiceLike>(
       key: "other",
       label: "Other Services",
       description: "Everything else that does not fit the core demand buckets.",
-      services: sortServicesByPriorityAndPrice(otherServices),
+      services: sortServicesByPriorityAndPrice(otherServices, platformKey),
     });
   }
 

@@ -1,8 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
 import { FieldValue } from "firebase-admin/firestore";
-import { COLLECTIONS } from "@/lib/constants";
+import { COLLECTIONS, formatCurrency } from "@/lib/constants";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import { sendAdminDepositNotification } from "@/lib/push";
+import { roundMoney } from "@/lib/money";
 
 export const runtime = "nodejs";
 
@@ -12,11 +13,12 @@ interface DepositRequestBody {
   utr?: unknown;
 }
 
-function getBearerToken(authHeader: string | null): string | null {
-  if (!authHeader?.startsWith("Bearer ")) {
-    return null;
-  }
+const UTR_PATTERN = /^[A-Z0-9-]{8,40}$/;
+const MIN_DEPOSIT = 10;
+const MAX_DEPOSIT = 100_000;
 
+function getBearerToken(authHeader: string | null): string | null {
+  if (!authHeader?.startsWith("Bearer ")) return null;
   return authHeader.slice("Bearer ".length).trim();
 }
 
@@ -45,12 +47,13 @@ export async function POST(request: NextRequest) {
   }
 
   const userId = typeof body.userId === "string" ? body.userId.trim() : "";
-  const utr = typeof body.utr === "string" ? body.utr.trim() : "";
-  const amount = Number(body.amount);
+  const utr = typeof body.utr === "string" ? body.utr.trim().toUpperCase() : "";
+  const rawAmount = Number(body.amount);
+  const amount = roundMoney(rawAmount);
 
-  if (!userId || !utr || !Number.isFinite(amount)) {
+  if (!userId || !utr || !Number.isFinite(rawAmount)) {
     return NextResponse.json(
-      { error: "userId, amount, and utr are required." },
+      { error: "Amount and transaction reference are required." },
       { status: 400 }
     );
   }
@@ -62,35 +65,65 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  if (amount < 10 || amount > 100000) {
+  if (!UTR_PATTERN.test(utr)) {
     return NextResponse.json(
-      { error: "Deposit amount must be between ₹10 and ₹100000." },
+      {
+        error:
+          "Enter a valid transaction reference (8–40 letters, digits, or hyphens).",
+      },
+      { status: 400 }
+    );
+  }
+
+  if (amount < MIN_DEPOSIT || amount > MAX_DEPOSIT) {
+    return NextResponse.json(
+      {
+        error: `Deposit amount must be between ${formatCurrency(
+          MIN_DEPOSIT
+        )} and ${formatCurrency(MAX_DEPOSIT)}.`,
+      },
       { status: 400 }
     );
   }
 
   try {
     const adminDb = getAdminDb();
-    const depositRef = adminDb.collection(COLLECTIONS.deposits).doc();
+    // Deterministic ID makes retries and duplicate UTR submissions idempotent.
+    const depositRef = adminDb
+      .collection(COLLECTIONS.deposits)
+      .doc(`${userId}_${utr}`);
+    const existing = await depositRef.get();
+
+    if (existing.exists) {
+      return NextResponse.json(
+        {
+          error:
+            "This transaction reference has already been submitted. Check your deposit history.",
+        },
+        { status: 409 }
+      );
+    }
 
     await depositRef.set({
       userId,
       userEmail: decodedToken.email ?? "",
-      amount: Number(amount.toFixed(2)),
+      amount,
       utr,
       status: "pending",
       createdAt: FieldValue.serverTimestamp(),
     });
 
-    await sendAdminDepositNotification({
+    // Notification delivery must not delay or fail the deposit response.
+    void sendAdminDepositNotification({
       depositId: depositRef.id,
-      userEmail: decodedToken.email ?? "مستخدم",
-      amount: Number(amount.toFixed(2)),
+      userEmail: decodedToken.email ?? "A customer",
+      amount,
     });
 
     return NextResponse.json({
       success: true,
       depositId: depositRef.id,
+      status: "pending",
     });
   } catch (error) {
     console.error("Failed to create deposit:", error);
@@ -99,7 +132,7 @@ export async function POST(request: NextRequest) {
         error:
           error instanceof Error
             ? error.message
-            : "Unable to create deposit right now.",
+            : "Unable to submit the deposit right now.",
       },
       { status: 500 }
     );

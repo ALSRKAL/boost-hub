@@ -43,3 +43,7 @@ next-env.d.ts
 
 # Flutter mobile app — not a web dependency
 mobile_admin/
+
+# local security scanner output
+.mimosa/
+.tmp-*

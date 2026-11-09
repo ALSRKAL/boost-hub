@@ -1,247 +1,485 @@
 "use client";
 
 import { useEffect, useMemo, useState, type FormEvent } from "react";
+import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
+import { useAgent } from "@/context/AgentContext";
 import Button from "@/components/ui/Button";
-import Input from "@/components/ui/Input";
+import Input, { Textarea } from "@/components/ui/Input";
 import Toast, { useToast } from "@/components/ui/Toast";
 import PlatformIcon from "@/components/ui/PlatformIcon";
-import { formatCurrency } from "@/lib/constants";
+import ServicePicker from "@/components/new-order/ServicePicker";
+import OrderGuide from "@/components/new-order/OrderGuide";
+import Icon from "@/components/ui/Icon";
 import {
-  getPlatformMetaForService,
-  type PlatformMeta,
-} from "@/lib/service-platforms";
-import { sortServicesByPriorityAndPrice } from "@/lib/service-ordering";
+  EmptyState,
+  ErrorState,
+  Notice,
+  PageHeader,
+  SkeletonPanel,
+} from "@/components/ui/Primitives";
+import {
+  formatCurrency,
+  formatNumber,
+} from "@/lib/constants";
+import { formatAverageTimeBilingual } from "@/lib/i18n";
+import { calculateCharge, roundMoney } from "@/lib/money";
+import {
+  getServicePrice,
+  groupServicesByPlatform,
+  isCustomCommentsService,
+  type ServiceItem,
+} from "@/lib/services";
+import { getServiceSections } from "@/lib/service-ordering";
+import {
+  getServiceGuidance,
+  validateServiceLink,
+} from "@/lib/service-guidance";
+import type { PlatformKey } from "@/lib/service-platforms";
 
-interface ServiceItem {
+interface FormErrors {
+  service?: string;
+  link?: string;
+  quantity?: string;
+  comments?: string;
+  dripfeed?: string;
+}
+
+interface PlacedOrder {
   id: string;
-  name: string;
-  category: string;
-  price: string;
-  min: number;
-  max: number;
-  type: string;
+  providerOrderId?: string;
+  charge: number;
+  pendingConfirmation?: boolean;
 }
 
-interface PlatformGroup {
-  platform: PlatformMeta;
-  services: ServiceItem[];
+const MAX_COMMENT_LINES = 300;
+
+function readErrorMessage(payload: unknown): string | null {
+  if (
+    payload &&
+    typeof payload === "object" &&
+    "error" in payload &&
+    typeof payload.error === "string"
+  ) {
+    return payload.error;
+  }
+  return null;
 }
 
-function getServicePrice(service: ServiceItem): number {
-  return Number.parseFloat(service.price) || 0;
-}
-
-function groupServicesByPlatform(services: ServiceItem[]): PlatformGroup[] {
-  const platformMap = new Map<string, PlatformGroup>();
-
-  for (const service of services) {
-    const platform = getPlatformMetaForService(service);
-    const existing = platformMap.get(platform.key);
-
-    if (existing) {
-      existing.services.push(service);
-      continue;
-    }
-
-    platformMap.set(platform.key, {
-      platform,
-      services: [service],
-    });
+function createRequestId(): string {
+  if (typeof crypto !== "undefined" && "randomUUID" in crypto) {
+    return crypto.randomUUID();
   }
 
-  return Array.from(platformMap.values())
-    .map((group) => ({
-      platform: group.platform,
-      services: sortServicesByPriorityAndPrice(group.services),
-    }))
-    .sort((a, b) => a.platform.label.localeCompare(b.platform.label));
+  return `req-${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
-function calculateCharge(service: ServiceItem | null, quantityValue: string): number | null {
-  const quantity = Number(quantityValue);
+function validateTargetLink(
+  raw: string,
+  platformKey: PlatformKey | null
+): string | null {
+  const link = raw.trim();
 
-  if (!service || !Number.isFinite(quantity) || quantity <= 0) {
-    return null;
+  if (!link) return "Target link or username is required.";
+  if (/\s/.test(link)) return "Remove spaces from the target.";
+  if (link.length < 3) return "Target is too short.";
+  if (link.length > 2048) return "Target is too long.";
+
+  const scheme = link.match(/^([a-z][a-z0-9+.-]*):/i)?.[1]?.toLowerCase();
+
+  if (scheme && scheme !== "http" && scheme !== "https") {
+    return "Only http:// and https:// links are accepted.";
   }
 
-  return Number(((getServicePrice(service) / 1000) * quantity).toFixed(2));
-}
+  if (platformKey === "website" && scheme !== "http" && scheme !== "https") {
+    return "Traffic services require a full https:// URL.";
+  }
 
-function formatServiceOption(service: ServiceItem): string {
-  return `${service.name} - ${formatCurrency(getServicePrice(service))}`;
+  return null;
 }
 
 export default function NewOrderPage() {
   const { user, userProfile } = useAuth();
+  const { language, t, pick } = useLanguage();
+  const { pendingPatch, consumeFormPatch, setFormContext } = useAgent();
   const { toasts, addToast, removeToast } = useToast();
   const searchParams = useSearchParams();
   const preselectedServiceId = searchParams.get("service");
 
   const [services, setServices] = useState<ServiceItem[]>([]);
-  const [loadingServices, setLoadingServices] = useState(true);
-  const [servicesError, setServicesError] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
-  const [selectedPlatformKey, setSelectedPlatformKey] = useState("");
-  const [selectedServiceId, setSelectedServiceId] = useState("");
+  const [platformKey, setPlatformKey] = useState<string>("");
+  const [sectionKey, setSectionKey] = useState<string>("");
+  const [serviceId, setServiceId] = useState<string>("");
+
   const [link, setLink] = useState("");
   const [quantity, setQuantity] = useState("");
-  const [submitting, setSubmitting] = useState(false);
+  const [comments, setComments] = useState("");
+  const [dripfeed, setDripfeed] = useState(false);
+  const [runs, setRuns] = useState("2");
+  const [interval, setIntervalValue] = useState("60");
 
-  const [serviceError, setServiceError] = useState("");
-  const [linkError, setLinkError] = useState("");
-  const [quantityError, setQuantityError] = useState("");
+  const [errors, setErrors] = useState<FormErrors>({});
+  const [submitting, setSubmitting] = useState(false);
+  const [lastOrder, setLastOrder] = useState<PlacedOrder | null>(null);
+  const [agentFilled, setAgentFilled] = useState(false);
 
   useEffect(() => {
     const controller = new AbortController();
 
-    async function loadServices() {
+    async function load() {
       try {
-        setLoadingServices(true);
-        setServicesError(null);
+        setLoading(true);
+        setLoadError(null);
 
         const response = await fetch("/api/services", {
-          method: "GET",
           cache: "no-store",
           signal: controller.signal,
         });
-
         const payload: unknown = await response.json();
 
         if (!response.ok) {
-          const message =
-            typeof payload === "object" &&
-            payload !== null &&
-            "error" in payload &&
-            typeof payload.error === "string"
-              ? payload.error
-              : "Failed to load services.";
-          throw new Error(message);
+          throw new Error(
+            readErrorMessage(payload) ?? "The catalog could not be loaded."
+          );
         }
 
         if (!Array.isArray(payload)) {
-          throw new Error("Unexpected services response.");
+          throw new Error("Unexpected catalog response.");
         }
 
         const nextServices = payload as ServiceItem[];
-        const platformGroups = groupServicesByPlatform(nextServices);
-
-        // If a service was preselected via URL (?service=ID), find its platform
-        let initialPlatform = platformGroups[0];
-        let initialService = initialPlatform?.services[0];
+        setServices(nextServices);
 
         if (preselectedServiceId) {
-          for (const group of platformGroups) {
-            const found = group.services.find((s) => s.id === preselectedServiceId);
-            if (found) {
-              initialPlatform = group;
-              initialService = found;
-              break;
-            }
+          const groups = groupServicesByPlatform(nextServices);
+          const group = groups.find((item) =>
+            item.services.some((service) => service.id === preselectedServiceId)
+          );
+
+          if (group) {
+            const sections = getServiceSections(
+              group.services,
+              group.platform.key
+            );
+            const section = sections.find((item) =>
+              item.services.some((service) => service.id === preselectedServiceId)
+            );
+
+            setPlatformKey(group.platform.key);
+            setSectionKey(section?.key ?? "");
+            setServiceId(preselectedServiceId);
           }
         }
-
-        setServices(nextServices);
-        setSelectedPlatformKey(initialPlatform?.platform.key ?? "");
-        setSelectedServiceId(initialService?.id ?? "");
       } catch (error) {
         if (controller.signal.aborted) return;
-        console.error("Failed to load order form services:", error);
-        setServicesError(
-          error instanceof Error ? error.message : "Failed to load services."
+        console.error("Failed to load order catalog:", error);
+        setLoadError(
+          error instanceof Error
+            ? error.message
+            : "The catalog could not be loaded."
         );
       } finally {
-        if (!controller.signal.aborted) {
-          setLoadingServices(false);
-        }
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
 
-    loadServices();
+    load();
 
     return () => controller.abort();
-  }, [preselectedServiceId]);
+  }, [preselectedServiceId, reloadKey]);
 
-  const platformGroups = useMemo(() => groupServicesByPlatform(services), [services]);
-  const selectedPlatformGroup =
-    platformGroups.find((group) => group.platform.key === selectedPlatformKey) ?? null;
-  const servicesInPlatform = selectedPlatformGroup?.services ?? [];
+  const groups = useMemo(() => groupServicesByPlatform(services), [services]);
+
+  const effectivePlatformKey =
+    groups.find((group) => group.platform.key === platformKey)?.platform.key ??
+    groups[0]?.platform.key ??
+    "";
+
+  const platformGroup =
+    groups.find((group) => group.platform.key === effectivePlatformKey) ?? null;
+
+  const sections = useMemo(
+    () =>
+      platformGroup
+        ? getServiceSections(platformGroup.services, platformGroup.platform.key)
+        : [],
+    [platformGroup]
+  );
+
+  const effectiveSectionKey =
+    sections.find((section) => section.key === sectionKey)?.key ??
+    sections[0]?.key ??
+    "";
+
+  const section =
+    sections.find((item) => item.key === effectiveSectionKey) ?? sections[0] ?? null;
+
+  const sectionServices = section?.services ?? [];
+
   const selectedService =
-    servicesInPlatform.find((service) => service.id === selectedServiceId) ?? null;
-  const totalCharge = calculateCharge(selectedService, quantity);
+    sectionServices.find((service) => service.id === serviceId) ??
+    sectionServices[0] ??
+    null;
 
-  function handlePlatformChange(platformKey: string) {
-    const group = platformGroups.find((item) => item.platform.key === platformKey);
-    const firstService = group?.services[0];
+  const price = selectedService ? getServicePrice(selectedService) : 0;
+  const parsedQuantity = Number(quantity);
+  const charge = selectedService
+    ? calculateCharge(price, Number.isFinite(parsedQuantity) ? parsedQuantity : 0, {
+        minimumMinor: 1,
+      })
+    : 0;
+  const balance = Number(userProfile?.balance ?? 0);
+  const balanceAfter = roundMoney(balance - charge);
+  const insufficient = charge > 0 && charge > balance;
+  const commentService = isCustomCommentsService(selectedService?.type);
+  const commentLines = comments
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean).length;
 
-    setSelectedPlatformKey(platformKey);
-    setSelectedServiceId(firstService?.id ?? "");
-    setServiceError("");
-    setQuantity("");
-    setQuantityError("");
+  const guidance = useMemo(
+    () => (selectedService ? getServiceGuidance(selectedService) : null),
+    [selectedService]
+  );
+  const liveLinkCheck = useMemo(
+    () =>
+      selectedService && link.trim()
+        ? validateServiceLink(link, selectedService)
+        : {},
+    [link, selectedService]
+  );
+  const liveLinkError = liveLinkCheck.error
+    ? pick(liveLinkCheck.error)
+    : undefined;
+
+  useEffect(() => {
+    if (!pendingPatch || groups.length === 0) return;
+
+    const targetId = pendingPatch.serviceId;
+
+    if (!targetId) {
+      consumeFormPatch();
+      return;
+    }
+
+    const targetGroup = groups.find((group) =>
+      group.services.some((service) => service.id === targetId)
+    );
+
+    if (!targetGroup) {
+      consumeFormPatch();
+      return;
+    }
+
+    const targetSections = getServiceSections(
+      targetGroup.services,
+      targetGroup.platform.key
+    );
+    const targetSection = targetSections.find((item) =>
+      item.services.some((service) => service.id === targetId)
+    );
+
+    setPlatformKey(targetGroup.platform.key);
+    setSectionKey(targetSection?.key ?? "");
+    setServiceId(targetId);
+
+    if (pendingPatch.link) setLink(pendingPatch.link);
+    if (
+      typeof pendingPatch.quantity === "number" &&
+      pendingPatch.quantity > 0
+    ) {
+      setQuantity(String(pendingPatch.quantity));
+    }
+    if (typeof pendingPatch.comments === "string") {
+      setComments(pendingPatch.comments);
+    }
+    if (typeof pendingPatch.dripFeed === "boolean") {
+      setDripfeed(pendingPatch.dripFeed);
+    }
+    if (
+      typeof pendingPatch.runs === "number" &&
+      pendingPatch.runs > 0
+    ) {
+      setRuns(String(pendingPatch.runs));
+    }
+    if (
+      typeof pendingPatch.interval === "number" &&
+      pendingPatch.interval > 0
+    ) {
+      setIntervalValue(String(pendingPatch.interval));
+    }
+
+    setErrors({});
+    setLastOrder(null);
+    setAgentFilled(true);
+    consumeFormPatch();
+  }, [pendingPatch, groups, consumeFormPatch]);
+
+  useEffect(() => {
+    setFormContext({
+      serviceId: selectedService?.id,
+      serviceName: selectedService?.name,
+      link: link.trim() || undefined,
+      quantity:
+        Number.isInteger(parsedQuantity) && parsedQuantity > 0
+          ? parsedQuantity
+          : undefined,
+      platform: effectivePlatformKey || undefined,
+      section: effectiveSectionKey || undefined,
+    });
+  }, [
+    selectedService?.id,
+    selectedService?.name,
+    link,
+    parsedQuantity,
+    effectivePlatformKey,
+    effectiveSectionKey,
+    setFormContext,
+  ]);
+
+  function resetOptions() {
+    setComments("");
+    setDripfeed(false);
+    setRuns("2");
+    setIntervalValue("60");
+    setErrors({});
+    setLastOrder(null);
   }
 
-  function resetForm() {
-    const firstGroup = platformGroups[0];
-    const firstService = firstGroup?.services[0];
-
-    setSelectedPlatformKey(firstGroup?.platform.key ?? "");
-    setSelectedServiceId(firstService?.id ?? "");
-    setLink("");
+  function handlePlatformChange(nextKey: string) {
+    if (nextKey === effectivePlatformKey) return;
+    setPlatformKey(nextKey);
+    setSectionKey("");
+    setServiceId("");
     setQuantity("");
-    setServiceError("");
-    setLinkError("");
-    setQuantityError("");
+    resetOptions();
   }
 
-  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  function handleSectionChange(nextKey: string) {
+    if (nextKey === effectiveSectionKey) return;
+    setSectionKey(nextKey);
+    setServiceId("");
+    setQuantity("");
+    resetOptions();
+  }
 
-    let hasError = false;
-    const trimmedLink = link.trim();
-    const parsedQuantity = Number(quantity);
+  function handleServiceChange(nextId: string) {
+    // A search can return a service from another section; follow it there.
+    const targetSection = sections.find((item) =>
+      item.services.some((service) => service.id === nextId)
+    );
+
+    if (targetSection) setSectionKey(targetSection.key);
+
+    setServiceId(nextId);
+    setQuantity("");
+    resetOptions();
+  }
+
+  function validate(): FormErrors {
+    const nextErrors: FormErrors = {};
 
     if (!selectedService) {
-      setServiceError("Please select a service.");
-      hasError = true;
-    } else {
-      setServiceError("");
+      nextErrors.service = "Select a service first.";
     }
 
-    if (!trimmedLink) {
-      setLinkError("Link is required.");
-      hasError = true;
-    } else {
-      setLinkError("");
+    const linkError = validateTargetLink(
+      link,
+      platformGroup?.platform.key ?? null
+    );
+    if (linkError) {
+      nextErrors.link = linkError;
+    } else if (liveLinkCheck.error) {
+      nextErrors.link = pick(liveLinkCheck.error);
     }
 
-    if (!Number.isInteger(parsedQuantity) || parsedQuantity <= 0) {
-      setQuantityError("Please enter a valid quantity.");
-      hasError = true;
+    if (!quantity.trim()) {
+      nextErrors.quantity = "Enter a quantity.";
+    } else if (!Number.isInteger(parsedQuantity) || parsedQuantity <= 0) {
+      nextErrors.quantity = "Use a whole number greater than zero.";
     } else if (
       selectedService &&
       (parsedQuantity < selectedService.min || parsedQuantity > selectedService.max)
     ) {
-      setQuantityError(
-        `Quantity must be between ${selectedService.min} and ${selectedService.max}.`
-      );
-      hasError = true;
-    } else {
-      setQuantityError("");
+      nextErrors.quantity = `Range is ${formatNumber(
+        selectedService.min
+      )}–${formatNumber(selectedService.max)}.`;
     }
 
-    if (hasError) return;
+    if (commentService) {
+      if (commentLines === 0) {
+        nextErrors.comments = "Add at least one comment, one per line.";
+      } else if (commentLines > MAX_COMMENT_LINES) {
+        nextErrors.comments = `Maximum ${MAX_COMMENT_LINES} comments.`;
+      } else if (
+        comments.split(/\r?\n/).some((line) => line.trim().length > 500)
+      ) {
+        nextErrors.comments = "Each comment must be 500 characters or fewer.";
+      } else if (commentLines !== parsedQuantity) {
+        nextErrors.quantity = `Quantity must equal the ${formatNumber(
+          commentLines
+        )} comment lines.`;
+      }
+    }
 
-    if (!user?.uid) {
-      addToast("You must be logged in to place an order.", "error");
+    if (dripfeed && selectedService?.dripfeed) {
+      const parsedRuns = Number(runs);
+      const parsedInterval = Number(interval);
+
+      if (!Number.isInteger(parsedRuns) || parsedRuns < 2) {
+        nextErrors.dripfeed = "Use at least 2 runs.";
+      } else if (
+        Number.isInteger(parsedQuantity) &&
+        parsedRuns > parsedQuantity
+      ) {
+        nextErrors.dripfeed = "Runs cannot exceed the quantity.";
+      } else if (
+        !Number.isInteger(parsedInterval) ||
+        parsedInterval < 1 ||
+        parsedInterval > 1440
+      ) {
+        nextErrors.dripfeed = "Interval must be 1–1440 minutes.";
+      }
+    }
+
+    return nextErrors;
+  }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (submitting) return;
+
+    const nextErrors = validate();
+    setErrors(nextErrors);
+
+    if (Object.keys(nextErrors).length > 0) return;
+
+    if (!user?.uid || !selectedService) {
+      addToast("Sign in again to place this order.", "error");
+      return;
+    }
+
+    if (charge <= 0) {
+      addToast("The charge is zero. Check the quantity.", "error");
+      return;
+    }
+
+    if (insufficient) {
+      addToast("Insufficient balance. Add funds before ordering.", "error");
       return;
     }
 
     try {
       setSubmitting(true);
-
       const token = await user.getIdToken();
+      const requestId = createRequestId();
+
       const response = await fetch("/api/order", {
         method: "POST",
         headers: {
@@ -249,32 +487,90 @@ export default function NewOrderPage() {
           Authorization: `Bearer ${token}`,
         },
         body: JSON.stringify({
-          serviceId: selectedServiceId,
-          link: trimmedLink,
+          serviceId: selectedService.id,
+          link: link.trim(),
           quantity: parsedQuantity,
           userId: user.uid,
+          requestId,
+          lang: language,
+          ...(commentService ? { comments } : {}),
+          ...(dripfeed && selectedService.dripfeed
+            ? { runs: Number(runs), interval: Number(interval) }
+            : {}),
         }),
       });
 
       const payload: unknown = await response.json();
 
       if (!response.ok) {
-        const message =
-          typeof payload === "object" &&
-          payload !== null &&
-          "error" in payload &&
-          typeof payload.error === "string"
-            ? payload.error
-            : "Failed to place order.";
-        throw new Error(message);
+        throw new Error(readErrorMessage(payload) ?? "The order was rejected.");
       }
 
-      addToast("Order placed successfully. It is now pending processing.", "success");
-      resetForm();
+      const orderId =
+        payload &&
+        typeof payload === "object" &&
+        "orderId" in payload &&
+        typeof payload.orderId === "string"
+          ? payload.orderId
+          : requestId;
+      const providerOrderId =
+        payload &&
+        typeof payload === "object" &&
+        "providerOrderId" in payload &&
+        typeof payload.providerOrderId === "string"
+          ? payload.providerOrderId
+          : undefined;
+      const duplicate =
+        payload &&
+        typeof payload === "object" &&
+        "duplicate" in payload &&
+        payload.duplicate === true;
+      const pendingConfirmation: boolean = Boolean(
+        payload &&
+        typeof payload === "object" &&
+          "pendingConfirmation" in payload &&
+          payload.pendingConfirmation === true
+      );
+      const pendingMessage =
+        payload &&
+        typeof payload === "object" &&
+        "message" in payload &&
+        typeof payload.message === "string"
+          ? payload.message
+          : "The provider did not confirm the order. Do not resubmit; support will reconcile it.";
+      const responseCharge =
+        payload &&
+        typeof payload === "object" &&
+        "charge" in payload &&
+        typeof payload.charge === "number"
+          ? payload.charge
+          : charge;
+
+      setLink("");
+      setQuantity("");
+      resetOptions();
+      setLastOrder({
+        id: orderId,
+        providerOrderId,
+        charge: responseCharge,
+        pendingConfirmation,
+      });
+
+      if (pendingConfirmation) {
+        addToast(pendingMessage, "info");
+      } else if (duplicate) {
+        addToast("This order request was already processed.", "info");
+      } else {
+        addToast(
+          `Order placed${providerOrderId ? ` · #${providerOrderId}` : ""}. Track it in Orders.`,
+          "success"
+        );
+      }
+
     } catch (error) {
       console.error("Failed to place order:", error);
       addToast(
-        error instanceof Error ? error.message : "Failed to place order.",
+        error instanceof Error ? error.message : "The order was rejected.",
         "error"
       );
     } finally {
@@ -283,352 +579,644 @@ export default function NewOrderPage() {
   }
 
   return (
-    <div className="mx-auto max-w-6xl space-y-6">
+    <div className="space-y-5">
       <Toast toasts={toasts} onRemove={removeToast} />
 
-      <section className="space-y-2">
-        <div className="inline-flex items-center gap-2 rounded-full border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-accent)]">
-          Order Placement
-        </div>
-        <h1 className="text-2xl font-bold text-[var(--color-text-primary)] lg:text-3xl">
-          New Order
-        </h1>
-        <p className="max-w-3xl text-sm text-[var(--color-text-muted)]">
-          Categories are now grouped by platform, so every Instagram service stays
-          under Instagram, Facebook under Facebook, and so on.
-        </p>
-      </section>
+      <PageHeader
+        eyebrow={t("Order desk", "مكتب الطلبات")}
+        title={t("New order", "طلب جديد")}
+        description={t(
+          "Pick a platform, then a section, then the exact service. The charge is calculated from the per-1,000 rate.",
+          "اختر المنصة ثم القسم ثم الخدمة المحددة. يُحسب المبلغ من سعر كل 1000 وحدة."
+        )}
+        actions={
+          <span className="text-[12px] text-ink-mute">
+            {t("Balance", "الرصيد")}{" "}
+            <span className="num-sm font-medium text-ink">
+              {formatCurrency(balance)}
+            </span>
+          </span>
+        }
+      />
 
-      {loadingServices ? (
-        <OrderSkeleton />
-      ) : servicesError ? (
-        <ErrorState message={servicesError} />
-      ) : (
-        <section className="grid grid-cols-1 gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-          <form
-            onSubmit={handleSubmit}
-            className="glass-card space-y-5 rounded-3xl p-6 lg:p-7"
+      {agentFilled ? (
+        <div className="flex items-start justify-between gap-3 rounded-[var(--radius-sm)] border border-[#cfdcef] bg-info-soft px-3 py-2.5 text-[12px] leading-5 text-info">
+          <span>
+            {t(
+              "The assistant filled this form. Review the fields and confirm the order.",
+              "قام المساعد بتعبئة هذا النموذج. راجع الحقول ثم أكد الطلب."
+            )}
+          </span>
+          <button
+            type="button"
+            onClick={() => setAgentFilled(false)}
+            className="-m-1 shrink-0 rounded p-1 hover:bg-surface/50"
+            aria-label={t("Dismiss", "إغلاق")}
           >
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">
-                Create Order
+            <Icon name="x" size={12} />
+          </button>
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <SkeletonPanel lines={10} />
+          <SkeletonPanel lines={6} />
+        </div>
+      ) : loadError ? (
+        <ErrorState
+          title="Catalog unavailable"
+          message={loadError}
+          onRetry={() => setReloadKey((value) => value + 1)}
+        />
+      ) : services.length === 0 ? (
+        <EmptyState
+          icon="list"
+          title="No services available"
+          description="The provider returned an empty catalog. Try again in a moment."
+          action={
+            <Button
+              variant="secondary"
+              size="sm"
+              onClick={() => setReloadKey((value) => value + 1)}
+              leadingIcon={<Icon name="refresh" size={13} />}
+            >
+              Reload catalog
+            </Button>
+          }
+        />
+      ) : (
+        <div className="space-y-5">
+          <OrderGuide service={selectedService} />
+          <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
+          <form className="panel min-w-0" onSubmit={handleSubmit} noValidate>
+            <div className="panel-head">
+              <h2 className="text-[13px] font-semibold text-ink">
+                {t("Order details", "تفاصيل الطلب")}
               </h2>
-              <p className="text-sm text-[var(--color-text-muted)]">
-                Choose a platform first. Followers and subscribers now appear at
-                the top, then the rest follow by demand priority and price.
-              </p>
+              <span className="num-sm text-[11px] text-ink-mute">
+                {t(
+                  `${formatNumber(services.length)} services`,
+                  `${formatNumber(services.length)} خدمة`
+                )}
+              </span>
             </div>
 
-            <div className="space-y-3">
-              <label className="block text-sm font-semibold text-[var(--color-text-primary)]">
-                Category
-              </label>
-              <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-                {platformGroups.map((group) => {
-                  const active = group.platform.key === selectedPlatformKey;
+            <div className="space-y-5 p-4">
+              <fieldset className="min-w-0">
+                <legend className="field-label">
+                  {t("Platform", "المنصة")}
+                </legend>
+                <div className="scroll-x scrollbar-none flex w-full min-w-0 gap-1.5 pb-0.5">
+                  {groups.map((group) => {
+                    const active = group.platform.key === effectivePlatformKey;
 
-                  return (
-                    <button
-                      key={group.platform.key}
-                      type="button"
-                      onClick={() => handlePlatformChange(group.platform.key)}
-                      className={`rounded-3xl border bg-gradient-to-br p-4 text-left transition-all duration-200 ${
-                        active
-                          ? `border-[var(--color-accent)]/40 ${group.platform.accentClass} shadow-lg shadow-black/20`
-                          : "border-[var(--color-border)] bg-[var(--color-bg-secondary)]/70 hover:border-[var(--color-accent)]/25 hover:bg-[var(--color-bg-tertiary)]/50"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="flex h-10 w-10 items-center justify-center rounded-2xl border border-white/10 bg-black/15 text-[var(--color-text-primary)]">
-                          <PlatformIcon platform={group.platform.key} className="h-5 w-5" />
+                    return (
+                      <button
+                        key={group.platform.key}
+                        type="button"
+                        className="chip"
+                        aria-pressed={active}
+                        onClick={() => handlePlatformChange(group.platform.key)}
+                      >
+                        <PlatformIcon
+                          platform={group.platform.key}
+                          className="h-3.5 w-3.5"
+                        />
+                        {group.platform.label}
+                        <span className="chip-count">
+                          {formatNumber(group.services.length)}
                         </span>
-                        <div className="min-w-0">
-                          <p className="truncate text-sm font-semibold text-[var(--color-text-primary)]">
-                            {group.platform.label}
-                          </p>
-                          <p className="text-xs text-[var(--color-text-muted)]">
-                            {group.services.length} services
-                          </p>
-                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </fieldset>
+
+              {sections.length > 1 ? (
+                <fieldset className="min-w-0">
+                  <legend className="field-label">
+                    {t("Section", "القسم")}
+                  </legend>
+                  <div className="flex flex-wrap gap-1.5">
+                    {sections.map((item) => (
+                      <button
+                        key={item.key}
+                        type="button"
+                        className="chip"
+                        aria-pressed={item.key === effectiveSectionKey}
+                        onClick={() => handleSectionChange(item.key)}
+                      >
+                        {item.label}
+                        <span className="chip-count">
+                          {formatNumber(item.services.length)}
+                        </span>
+                      </button>
+                    ))}
+                  </div>
+                </fieldset>
+              ) : null}
+
+              <div>
+                <label className="field-label">{t("Service", "الخدمة")}</label>
+                <ServicePicker
+                  services={sectionServices}
+                  searchServices={platformGroup?.services ?? sectionServices}
+                  value={selectedService?.id ?? ""}
+                  onChange={handleServiceChange}
+                  invalid={Boolean(errors.service)}
+                />
+                {errors.service ? (
+                  <p className="field-error" role="alert">
+                    {errors.service}
+                  </p>
+                ) : null}
+
+                {selectedService ? (
+                  <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 text-[11.5px] text-ink-mute">
+                    <span>
+                      {t("ID", "المعرف")}{" "}
+                      <span className="num-sm text-ink">#{selectedService.id}</span>
+                    </span>
+                    <span>
+                      {t("Rate", "السعر")}{" "}
+                      <span className="num-sm text-ink">
+                        {formatCurrency(price)}
+                      </span>{" "}
+                      {t("/ 1k", "/ 1000")}
+                    </span>
+                    <span>
+                      {t("Range", "النطاق")}{" "}
+                      <span className="num-sm text-ink">
+                        {formatNumber(selectedService.min)}–
+                        {formatNumber(selectedService.max)}
+                      </span>
+                    </span>
+                    <span>
+                      {t("Avg. time", "متوسط الوقت")}{" "}
+                      <span className="text-ink">
+                        {formatAverageTimeBilingual(
+                          selectedService.averageTime,
+                          language
+                        )}
+                      </span>
+                    </span>
+                    {selectedService.refill ? (
+                      <span className="text-positive">
+                        {t("Refill", "تعويض")}
+                      </span>
+                    ) : null}
+                    {selectedService.cancel ? (
+                      <span className="text-ink-soft">
+                        {t("Cancelable", "قابل للإلغاء")}
+                      </span>
+                    ) : null}
+                  </div>
+                ) : null}
+              </div>
+
+              <div>
+                <Input
+                  label={t("Target link or username", "رابط الهدف أو اسم المستخدم")}
+                  placeholder={
+                    guidance
+                      ? pick(guidance.placeholder)
+                      : t("https://… or @username", "https://… أو @username")
+                  }
+                  value={link}
+                  onChange={(event) => {
+                    setLink(event.target.value);
+                    if (errors.link)
+                      setErrors((current) => ({ ...current, link: undefined }));
+                    if (lastOrder) setLastOrder(null);
+                  }}
+                  error={errors.link ?? liveLinkError}
+                  hint={
+                    guidance
+                      ? pick(guidance.instructions)
+                      : t(
+                          "Paste the exact profile or content link required by the service.",
+                          "الصق رابط الملف الشخصي أو المحتوى المطلوب للخدمة."
+                        )
+                  }
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  inputMode="url"
+                  leadingIcon={<Icon name="link" size={14} />}
+                />
+                {liveLinkCheck.normalized && guidance ? (
+                  <button
+                    type="button"
+                    className="mt-1.5 text-[11px] font-medium text-accent hover:underline"
+                    onClick={() => {
+                      setLink(liveLinkCheck.normalized!);
+                      setErrors((current) => ({
+                        ...current,
+                        link: undefined,
+                      }));
+                    }}
+                  >
+                    {pick(guidance.normalizeCta)} ·{" "}
+                    <span dir="ltr" className="font-mono">
+                      {liveLinkCheck.normalized}
+                    </span>
+                  </button>
+                ) : null}
+              </div>
+
+              <div>
+                <Input
+                  label={t("Quantity", "الكمية")}
+                  type="number"
+                  min={selectedService?.min ?? 1}
+                  max={selectedService?.max ?? undefined}
+                  step="1"
+                  inputMode="numeric"
+                  className="no-spinner"
+                  placeholder={
+                    selectedService
+                      ? `${formatNumber(selectedService.min)}–${formatNumber(
+                          selectedService.max
+                        )}`
+                      : t("Select a service first", "اختر خدمة أولًا")
+                  }
+                  value={quantity}
+                  onChange={(event) => {
+                    setQuantity(event.target.value);
+                    if (errors.quantity)
+                      setErrors((current) => ({ ...current, quantity: undefined }));
+                    if (lastOrder) setLastOrder(null);
+                  }}
+                  error={errors.quantity}
+                  disabled={!selectedService || commentService}
+                  numeric
+                  action={
+                    selectedService && !commentService ? (
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          className="text-[11px] font-medium text-accent hover:underline"
+                          onClick={() => {
+                            setQuantity(String(selectedService.min));
+                            setErrors((current) => ({
+                              ...current,
+                              quantity: undefined,
+                            }));
+                          }}
+                        >
+                          {t("Min", "الأدنى")}
+                        </button>
+                        <span className="text-ink-mute">·</span>
+                        <button
+                          type="button"
+                          className="text-[11px] font-medium text-accent hover:underline"
+                          onClick={() => {
+                            setQuantity(String(selectedService.max));
+                            setErrors((current) => ({
+                              ...current,
+                              quantity: undefined,
+                            }));
+                          }}
+                        >
+                          {t("Max", "الأقصى")}
+                        </button>
                       </div>
-                    </button>
-                  );
-                })}
+                    ) : undefined
+                  }
+                />
+              </div>
+
+              {commentService ? (
+                <Textarea
+                  label={t("Custom comments", "تعليقات مخصصة")}
+                  placeholder={t(
+                    "One comment per line\nGreat post\nKeep it up",
+                    "تعليق واحد في كل سطر\nمنشور رائع\nاستمر"
+                  )}
+                  value={comments}
+                  onChange={(event) => {
+                    const nextValue = event.target.value;
+                    const lineCount = nextValue
+                      .split(/\r?\n/)
+                      .map((line) => line.trim())
+                      .filter(Boolean).length;
+                    setComments(nextValue);
+                    setQuantity(lineCount > 0 ? String(lineCount) : "");
+                    if (errors.comments)
+                      setErrors((current) => ({ ...current, comments: undefined }));
+                    if (errors.quantity)
+                      setErrors((current) => ({ ...current, quantity: undefined }));
+                    if (lastOrder) setLastOrder(null);
+                  }}
+                  error={errors.comments}
+                  hint={t(
+                    `${formatNumber(commentLines)} comment${
+                      commentLines === 1 ? "" : "s"
+                    } · one per line · quantity is set from the line count`,
+                    `${formatNumber(commentLines)} تعليق · تعليق واحد لكل سطر · يتم ضبط الكمية من عدد الأسطر`
+                  )}
+                  rows={5}
+                  disabled={!selectedService}
+                />
+              ) : null}
+
+              {selectedService?.dripfeed ? (
+                <div className="panel-flat p-3">
+                  <label className="flex cursor-pointer items-start gap-2.5">
+                    <input
+                      type="checkbox"
+                      checked={dripfeed}
+                      onChange={(event) => {
+                        setDripfeed(event.target.checked);
+                        if (errors.dripfeed)
+                          setErrors((current) => ({
+                            ...current,
+                            dripfeed: undefined,
+                          }));
+                      }}
+                      className="mt-0.5 h-4 w-4 accent-[var(--ink)]"
+                    />
+                    <span>
+                      <span className="block text-[12.5px] font-medium text-ink">
+                        {t("Drip-feed delivery", "التسليم المرحلي")}
+                      </span>
+                      <span className="block text-[11.5px] text-ink-mute">
+                        {t(
+                          "Split the quantity across runs at a fixed interval.",
+                          "قسّم الكمية على دفعات بفاصل زمني ثابت."
+                        )}
+                      </span>
+                    </span>
+                  </label>
+
+                  {dripfeed ? (
+                    <div className="mt-3 grid grid-cols-2 gap-3">
+                      <Input
+                        label={t("Runs", "عدد الدفعات")}
+                        type="number"
+                        min={2}
+                        step="1"
+                        inputMode="numeric"
+                        className="no-spinner"
+                        value={runs}
+                        onChange={(event) => {
+                          setRuns(event.target.value);
+                          if (errors.dripfeed)
+                            setErrors((current) => ({
+                              ...current,
+                              dripfeed: undefined,
+                            }));
+                        }}
+                        numeric
+                      />
+                      <Input
+                        label={t("Interval (minutes)", "الفاصل (دقائق)")}
+                        type="number"
+                        min={1}
+                        max={1440}
+                        step="1"
+                        inputMode="numeric"
+                        className="no-spinner"
+                        value={interval}
+                        onChange={(event) => {
+                          setIntervalValue(event.target.value);
+                          if (errors.dripfeed)
+                            setErrors((current) => ({
+                              ...current,
+                              dripfeed: undefined,
+                            }));
+                        }}
+                        numeric
+                      />
+                      {errors.dripfeed ? (
+                        <p className="field-error col-span-2" role="alert">
+                          {errors.dripfeed}
+                        </p>
+                      ) : null}
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
+
+              {insufficient ? (
+                <Notice tone="danger">
+                  {t("This order costs", "تكلفة هذا الطلب")}{" "}
+                  <span className="num-sm font-medium">{formatCurrency(charge)}</span>
+                  {t(", more than your balance of ", "، أكثر من رصيدك البالغ ")}
+                  <span className="num-sm font-medium">{formatCurrency(balance)}</span>.{" "}
+                  <Link href="/add-funds" className="font-medium underline">
+                    {t("Add funds", "إضافة رصيد")}
+                  </Link>
+                  .
+                </Notice>
+              ) : null}
+
+              {lastOrder ? (
+                <Notice tone={lastOrder.pendingConfirmation ? "warning" : "positive"}>
+                  <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                    <span>
+                      {lastOrder.pendingConfirmation
+                        ? t(
+                            "Order submitted; provider confirmation is pending.",
+                            "تم إرسال الطلب؛ بانتظار تأكيد المزود."
+                          )
+                        : t("Order placed.", "تم إنشاء الطلب.")}
+                    </span>
+                    <span className="num-sm font-medium">
+                      #{lastOrder.providerOrderId ?? lastOrder.id.slice(0, 8)}
+                    </span>
+                    {lastOrder.pendingConfirmation ? (
+                      <span>
+                        {t(
+                          `Charged ${formatCurrency(
+                            lastOrder.charge
+                          )}. Do not resubmit.`,
+                          `تم خصم ${formatCurrency(
+                            lastOrder.charge
+                          )}. لا تُعد الإرسال.`
+                        )}
+                      </span>
+                    ) : (
+                      <span>
+                        {t(
+                          `charged ${formatCurrency(lastOrder.charge)}.`,
+                          `تم خصم ${formatCurrency(lastOrder.charge)}.`
+                        )}
+                      </span>
+                    )}
+                    <Link href="/orders" className="font-medium underline">
+                      {t("Open orders", "عرض الطلبات")}
+                    </Link>
+                  </span>
+                </Notice>
+              ) : null}
+
+              <div className="flex flex-wrap items-center gap-3 border-t border-line pt-4">
+                <Button
+                  type="submit"
+                  size="lg"
+                  isLoading={submitting}
+                  disabled={
+                    !selectedService ||
+                    insufficient ||
+                    charge <= 0 ||
+                    Boolean(liveLinkError)
+                  }
+                  leadingIcon={<Icon name="plus" size={15} />}
+                >
+                  {t("Place order", "تأكيد الطلب")}
+                </Button>
+                <p className="text-[11.5px] text-ink-mute">
+                  {t(
+                    "Charged from balance immediately. Provider acceptance creates the order reference.",
+                    "يُخصم المبلغ من الرصيد فورًا. قبول المزود ينشئ مرجع الطلب."
+                  )}
+                </p>
               </div>
             </div>
-
-            <SelectField
-              label="Service"
-              value={selectedServiceId}
-              onChange={(value) => {
-                setSelectedServiceId(value);
-                setServiceError("");
-                setQuantity("");
-                setQuantityError("");
-              }}
-              error={serviceError}
-              options={servicesInPlatform.map((service) => ({
-                value: service.id,
-                label: formatServiceOption(service),
-              }))}
-            />
-
-            <Input
-              label="Link"
-              type="text"
-              placeholder="Enter the target link"
-              value={link}
-              onChange={(event) => {
-                setLink(event.target.value);
-                if (linkError) setLinkError("");
-              }}
-              error={linkError}
-              required
-            />
-
-            <div className="space-y-2">
-              <Input
-                label="Quantity"
-                type="number"
-                min={selectedService?.min ?? 1}
-                max={selectedService?.max ?? undefined}
-                step="1"
-                inputMode="numeric"
-                placeholder={
-                  selectedService
-                    ? `Min ${selectedService.min}, Max ${selectedService.max}`
-                    : "Select a service first"
-                }
-                value={quantity}
-                onChange={(event) => {
-                  setQuantity(event.target.value);
-                  if (quantityError) setQuantityError("");
-                }}
-                error={quantityError}
-                disabled={!selectedService}
-                required
-              />
-
-              {selectedService ? (
-                <p className="text-sm text-[var(--color-text-muted)]">
-                  Allowed range: {selectedService.min.toLocaleString("en-IN")} -{" "}
-                  {selectedService.max.toLocaleString("en-IN")}
-                </p>
-              ) : null}
-            </div>
-
-            <div className="rounded-3xl border border-emerald-500/20 bg-gradient-to-br from-emerald-500/12 via-emerald-500/6 to-transparent p-5">
-              <p className="text-xs uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                Total Charge
-              </p>
-              <p className="mt-2 text-xl sm:text-2xl lg:text-3xl font-bold text-emerald-300 truncate">
-                {formatCurrency(totalCharge ?? 0)}
-              </p>
-              <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-                Updates live in rupees as the user changes quantity.
-              </p>
-            </div>
-
-            <Button type="submit" fullWidth isLoading={submitting}>
-              Place Order
-            </Button>
           </form>
 
-          <aside className="glass-card space-y-5 rounded-3xl p-6 lg:p-7">
-            <div className="space-y-2">
-              <h2 className="text-xl font-semibold text-[var(--color-text-primary)]">
-                Order Summary
+          <aside className="panel min-w-0 xl:sticky xl:top-20">
+            <div className="panel-head">
+              <h2 className="text-[13px] font-semibold text-ink">
+                {t("Charge", "المبلغ")}
               </h2>
-              <p className="text-sm text-[var(--color-text-muted)]">
-                Review the selected platform, limits, and pricing before checkout.
-              </p>
+              {selectedService ? (
+                <span className="num-sm text-[11px] text-ink-mute">
+                  #{selectedService.id}
+                </span>
+              ) : null}
             </div>
-
-            <SummaryItem
-              label="Current Balance"
-              value={formatCurrency(userProfile?.balance ?? 0)}
-              accent
-            />
-            <SummaryItem
-              label="Platform"
-              value={selectedPlatformGroup?.platform.label ?? "—"}
-            />
-            <SummaryItem
-              label="Service"
-              value={selectedService?.name ?? "Choose a service"}
-            />
-            <SummaryItem
-              label="Provider Category"
-              value={selectedService?.category ?? "—"}
-            />
-            <SummaryItem
-              label="Price / 1000"
-              value={selectedService ? formatCurrency(getServicePrice(selectedService)) : "—"}
-            />
-            <SummaryItem
-              label="Estimated Charge"
-              value={formatCurrency(totalCharge ?? 0)}
-            />
-
-            {selectedPlatformGroup ? (
-              <div
-                className={`rounded-3xl border border-[var(--color-border)] bg-gradient-to-br ${selectedPlatformGroup.platform.accentClass} p-5`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-black/15 text-[var(--color-text-primary)]">
-                    <PlatformIcon
-                      platform={selectedPlatformGroup.platform.key}
-                      className="h-6 w-6"
-                    />
-                  </span>
-                  <div>
-                    <p className="text-xs uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
-                      Selected Platform
-                    </p>
-                    <h3 className="mt-1 text-lg font-semibold text-[var(--color-text-primary)]">
-                      {selectedPlatformGroup.platform.label}
-                    </h3>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-3">
-                  <CompactStat
-                    label="Services"
-                    value={selectedPlatformGroup.services.length.toLocaleString("en-IN")}
-                  />
-                  <CompactStat
-                    label="Starting From"
-                    value={formatCurrency(
-                      getServicePrice(selectedPlatformGroup.services[0] ?? selectedService!)
+            <div className="p-4">
+              <p className="num text-[30px] font-medium leading-none text-ink">
+                {formatCurrency(charge)}
+              </p>
+              <p className="mt-1.5 text-[11.5px] text-ink-mute">
+                {selectedService
+                  ? t(
+                      `${formatCurrency(price)} per 1,000 × ${formatNumber(
+                        Number.isInteger(parsedQuantity) ? parsedQuantity : 0
+                      )}`,
+                      `${formatCurrency(price)} لكل 1000 × ${formatNumber(
+                        Number.isInteger(parsedQuantity) ? parsedQuantity : 0
+                      )}`
+                    )
+                  : t(
+                      "Select a service to calculate the charge.",
+                      "اختر خدمة لحساب المبلغ."
                     )}
-                  />
+              </p>
+
+              <dl className="mt-4 divide-y divide-line border-y border-line text-[12.5px]">
+                <SummaryRow
+                  label={t("Balance", "الرصيد")}
+                  value={formatCurrency(balance)}
+                  numeric
+                />
+                <SummaryRow
+                  label={t("After order", "بعد الطلب")}
+                  value={formatCurrency(balanceAfter)}
+                  tone={balanceAfter < 0 ? "danger" : undefined}
+                  numeric
+                />
+                <SummaryRow
+                  label={t("Quantity", "الكمية")}
+                  value={
+                    Number.isInteger(parsedQuantity) && parsedQuantity > 0
+                      ? formatNumber(parsedQuantity)
+                      : "—"
+                  }
+                  numeric
+                />
+                <SummaryRow
+                  label={t("Service rate", "سعر الخدمة")}
+                  value={selectedService ? formatCurrency(price) : "—"}
+                  numeric
+                />
+              </dl>
+
+              {selectedService ? (
+                <div className="mt-4 space-y-2">
+                  <p className="text-[12.5px] font-medium leading-5 text-ink">
+                    {selectedService.name}
+                  </p>
+                  <p className="text-[11.5px] text-ink-mute">
+                    {selectedService.category}
+                  </p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {selectedService.refill ? (
+                      <span className="status status-positive">
+                        {t("Refill", "تعويض")}
+                      </span>
+                    ) : (
+                      <span className="status status-neutral">
+                        {t("No refill", "بدون تعويض")}
+                      </span>
+                    )}
+                    {selectedService.cancel ? (
+                      <span className="status status-info">
+                        {t("Cancelable", "قابل للإلغاء")}
+                      </span>
+                    ) : null}
+                    {selectedService.dripfeed ? (
+                      <span className="status status-neutral">
+                        {t("Drip-feed", "تسليم مرحلي")}
+                      </span>
+                    ) : null}
+                  </div>
+
+                  {commentService && commentLines > 0 ? (
+                    <p className="text-[11.5px] text-ink-mute">
+                      {t(
+                        `${formatNumber(commentLines)} custom comment${
+                          commentLines === 1 ? "" : "s"
+                        } attached.`,
+                        `تم إرفاق ${formatNumber(commentLines)} تعليق مخصص.`
+                      )}
+                    </p>
+                  ) : null}
+
+                  {dripfeed && selectedService.dripfeed ? (
+                    <p className="text-[11.5px] text-ink-mute">
+                      {t(
+                        `${runs} runs · every ${interval} min`,
+                        `${runs} دفعة · كل ${interval} دقيقة`
+                      )}
+                    </p>
+                  ) : null}
                 </div>
-              </div>
-            ) : (
-              <div className="rounded-3xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/60 p-5 text-sm text-[var(--color-text-muted)]">
-                Select a platform to reveal its sorted services.
-              </div>
-            )}
+              ) : null}
+            </div>
           </aside>
-        </section>
+          </div>
+        </div>
       )}
     </div>
   );
 }
 
-function SelectField({
+function SummaryRow({
   label,
   value,
-  onChange,
-  options,
-  error,
+  numeric = false,
+  tone,
 }: {
   label: string;
   value: string;
-  onChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
-  error?: string;
+  numeric?: boolean;
+  tone?: "danger";
 }) {
   return (
-    <div className="space-y-2">
-      <label className="block text-sm font-semibold text-[var(--color-text-primary)]">
-        {label}
-      </label>
-      <select
-        value={value}
-        onChange={(event) => onChange(event.target.value)}
-        className={`w-full rounded-2xl border bg-[var(--color-bg-tertiary)] px-4 py-3 text-sm text-[var(--color-text-primary)] outline-none transition-all duration-200 ${
-          error
-            ? "border-red-500/40 focus:border-red-500"
-            : "border-[var(--color-border)] focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20"
-        }`}
-      >
-        {options.map((option) => (
-          <option key={option.value} value={option.value}>
-            {option.label}
-          </option>
-        ))}
-      </select>
-      {error ? <p className="text-sm text-red-300">{error}</p> : null}
-    </div>
-  );
-}
-
-function SummaryItem({
-  label,
-  value,
-  accent = false,
-}: {
-  label: string;
-  value: string;
-  accent?: boolean;
-}) {
-  return (
-    <div
-      className={`rounded-2xl border px-4 py-4 ${
-        accent
-          ? "border-emerald-500/20 bg-emerald-500/10"
-          : "border-[var(--color-border)] bg-[var(--color-bg-secondary)]/60"
-      }`}
-    >
-      <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-        {label}
-      </p>
-      <p
-        className={`mt-2 text-sm font-semibold ${
-          accent ? "text-emerald-300" : "text-[var(--color-text-primary)]"
+    <div className="flex items-center justify-between gap-3 py-2">
+      <dt className="text-ink-mute">{label}</dt>
+      <dd
+        className={`${numeric ? "num-sm" : ""} font-medium ${
+          tone === "danger" ? "text-danger" : "text-ink"
         }`}
       >
         {value}
-      </p>
-    </div>
-  );
-}
-
-function CompactStat({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-[var(--color-border)] bg-black/10 px-3 py-3">
-      <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function OrderSkeleton() {
-  return (
-    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[1.08fr_0.92fr]">
-      {Array.from({ length: 2 }).map((_, index) => (
-        <div
-          key={index}
-          className="glass-card rounded-3xl border border-[var(--color-border)] p-6"
-        >
-          <div className="animate-pulse space-y-4">
-            <div className="h-6 w-40 rounded-full bg-white/10" />
-            <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
-              <div className="h-20 rounded-3xl bg-white/5" />
-              <div className="h-20 rounded-3xl bg-white/5" />
-              <div className="h-20 rounded-3xl bg-white/5" />
-            </div>
-            <div className="h-14 rounded-2xl bg-white/5" />
-            <div className="h-14 rounded-2xl bg-white/5" />
-            <div className="h-28 rounded-3xl bg-white/5" />
-            <div className="h-12 rounded-2xl bg-white/10" />
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function ErrorState({ message }: { message: string }) {
-  return (
-    <div className="glass-card rounded-3xl border border-red-500/20 bg-red-500/5 p-6 text-center">
-      <h2 className="text-lg font-semibold text-red-300">Unable to load services</h2>
-      <p className="mt-2 text-sm text-red-200/80">{message}</p>
+      </dd>
     </div>
   );
 }

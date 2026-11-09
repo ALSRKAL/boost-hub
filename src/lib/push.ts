@@ -9,8 +9,8 @@ export async function sendAdminDepositNotification(input: {
     await getAdminMessaging().send({
       topic: "admins",
       notification: {
-        title: "طلب إيداع جديد",
-        body: `${input.userEmail} أرسل طلب إيداع بمبلغ ₹${input.amount.toFixed(2)}`,
+        title: "New deposit request",
+        body: `${input.userEmail} submitted a deposit of ₹${input.amount.toFixed(2)}.`,
       },
       data: {
         type: "deposit_created",

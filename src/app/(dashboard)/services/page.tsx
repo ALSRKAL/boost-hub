@@ -2,527 +2,496 @@
 
 import { useDeferredValue, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useLanguage } from "@/context/LanguageContext";
 import PlatformIcon from "@/components/ui/PlatformIcon";
-import { APP_CONFIG, formatCurrency } from "@/lib/constants";
+import Icon from "@/components/ui/Icon";
+import SearchInput from "@/components/ui/SearchInput";
 import {
-  getPlatformMetaForService,
-  type PlatformMeta,
-} from "@/lib/service-platforms";
+  EmptyState,
+  ErrorState,
+  PageHeader,
+  SkeletonRows,
+} from "@/components/ui/Primitives";
+import { formatCurrency, formatNumber } from "@/lib/constants";
+import { formatAverageTimeBilingual } from "@/lib/i18n";
 import {
-  getServiceSections,
-  sortServicesByPriorityAndPrice,
-  type ServiceSection,
-} from "@/lib/service-ordering";
+  getServicePrice,
+  groupServicesByPlatform,
+  minServicePrice,
+  searchServices,
+  type PlatformGroup,
+  type ServiceItem,
+} from "@/lib/services";
+import { getServiceGuidance } from "@/lib/service-guidance";
+import type { PlatformKey } from "@/lib/service-platforms";
+import { getServiceSections } from "@/lib/service-ordering";
 
-interface ServiceItem {
-  id: string;
-  name: string;
-  category: string;
-  price: string;
-  min: number;
-  max: number;
-  type: string;
-}
-
-interface PlatformGroup {
-  platform: PlatformMeta;
-  services: ServiceItem[];
-}
-
-function getServicePrice(service: ServiceItem): number {
-  return Number.parseFloat(service.price) || 0;
-}
-
-function groupServicesByPlatform(services: ServiceItem[]): PlatformGroup[] {
-  const groups = new Map<string, PlatformGroup>();
-
-  for (const service of services) {
-    const platform = getPlatformMetaForService(service);
-    const existing = groups.get(platform.key);
-
-    if (existing) {
-      existing.services.push(service);
-      continue;
-    }
-
-    groups.set(platform.key, {
-      platform,
-      services: [service],
-    });
-  }
-
-  return Array.from(groups.values())
-    .map((group) => ({
-      platform: group.platform,
-      services: sortServicesByPriorityAndPrice(group.services),
-    }))
-    .sort((a, b) => a.platform.label.localeCompare(b.platform.label));
-}
+type PlatformFilter = PlatformKey | "all";
 
 export default function ServicesPage() {
+  const { t } = useLanguage();
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [searchTerm, setSearchTerm] = useState("");
-  const [openPlatforms, setOpenPlatforms] = useState<string[]>([]);
+  const [reloadKey, setReloadKey] = useState(0);
+  const [search, setSearch] = useState("");
+  const [platformFilter, setPlatformFilter] = useState<PlatformFilter | null>(null);
 
-  const deferredSearchTerm = useDeferredValue(searchTerm);
-  const normalizedSearchTerm = deferredSearchTerm.trim().toLowerCase();
+  const deferredSearch = useDeferredValue(search);
+  const query = deferredSearch.trim();
 
   useEffect(() => {
     const controller = new AbortController();
 
-    async function loadServices() {
+    async function load() {
       try {
         setLoading(true);
         setError(null);
 
         const response = await fetch("/api/services", {
-          method: "GET",
           cache: "no-store",
           signal: controller.signal,
         });
-
         const payload: unknown = await response.json();
 
         if (!response.ok) {
           const message =
-            typeof payload === "object" &&
-            payload !== null &&
-            "error" in payload &&
-            typeof payload.error === "string"
-              ? payload.error
-              : "Failed to load services.";
+            typeof payload === "object" && payload !== null && "error" in payload
+              ? String(payload.error)
+              : "The catalog could not be loaded.";
           throw new Error(message);
         }
 
         if (!Array.isArray(payload)) {
-          throw new Error("Unexpected services response.");
+          throw new Error("Unexpected catalog response.");
         }
 
-        const nextServices = payload as ServiceItem[];
-        setServices(nextServices);
-
-        if (nextServices.length > 0) {
-          const firstPlatform = groupServicesByPlatform(nextServices)[0]?.platform.key;
-          setOpenPlatforms((current) =>
-            current.length > 0 || !firstPlatform ? current : [firstPlatform]
-          );
-        }
-      } catch (fetchError) {
+        setServices(payload as ServiceItem[]);
+      } catch (loadError) {
         if (controller.signal.aborted) return;
-        console.error("Failed to fetch services:", fetchError);
+        console.error("Failed to load services:", loadError);
         setError(
-          fetchError instanceof Error
-            ? fetchError.message
-            : "Failed to load services."
+          loadError instanceof Error
+            ? loadError.message
+            : "The catalog could not be loaded."
         );
       } finally {
-        if (!controller.signal.aborted) {
-          setLoading(false);
-        }
+        if (!controller.signal.aborted) setLoading(false);
       }
     }
 
-    loadServices();
+    load();
 
     return () => controller.abort();
-  }, []);
+  }, [reloadKey]);
 
-  const visibleServices = useMemo(
-    () =>
-      normalizedSearchTerm
-        ? services.filter((service) => {
-            const platform = getPlatformMetaForService(service);
-            return (
-              service.name.toLowerCase().includes(normalizedSearchTerm) ||
-              service.category.toLowerCase().includes(normalizedSearchTerm) ||
-              platform.label.toLowerCase().includes(normalizedSearchTerm)
-            );
-          })
-        : services,
-    [normalizedSearchTerm, services]
-  );
+  const groups = useMemo(() => groupServicesByPlatform(services), [services]);
+  const searched = useMemo(() => searchServices(services, query), [services, query]);
 
-  const groupedServices = useMemo(
-    () => groupServicesByPlatform(visibleServices),
-    [visibleServices]
-  );
+  const counts = useMemo(() => {
+    const byPlatform = Object.fromEntries(
+      groups.map((group) => [group.platform.key, group.services.length])
+    ) as Record<string, number>;
 
-  const effectiveOpenPlatforms =
-    normalizedSearchTerm.length > 0
-      ? groupedServices.map((group) => group.platform.key)
-      : openPlatforms;
+    return { all: services.length, byPlatform };
+  }, [groups, services.length]);
 
-  function togglePlatform(platformKey: string) {
-    setOpenPlatforms((current) =>
-      current.includes(platformKey)
-        ? current.filter((item) => item !== platformKey)
-        : [...current, platformKey]
+  const effectiveFilter: PlatformFilter = useMemo(() => {
+    // An active search is global; clearing it restores the last platform.
+    if (query) return "all";
+    if (platformFilter) return platformFilter;
+    return groups[0]?.platform.key ?? "all";
+  }, [query, platformFilter, groups]);
+
+  const visibleGroups = useMemo<PlatformGroup[]>(() => {
+    const searchedGroups = groupServicesByPlatform(searched);
+
+    return searchedGroups.filter(
+      (group) => effectiveFilter === "all" || group.platform.key === effectiveFilter
     );
-  }
+  }, [searched, effectiveFilter]);
+
+  const visibleCount = visibleGroups.reduce(
+    (total, group) => total + group.services.length,
+    0
+  );
 
   return (
-    <div className="mx-auto max-w-7xl space-y-6">
-      <section className="space-y-2">
-        <div className="inline-flex items-center gap-2 rounded-full border border-[var(--color-accent)]/20 bg-[var(--color-accent)]/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.18em] text-[var(--color-accent)]">
-          Curated Catalog
-        </div>
-        <h1 className="text-2xl font-bold text-[var(--color-text-primary)] lg:text-3xl">
-          Services
-        </h1>
-        <p className="max-w-3xl text-sm text-[var(--color-text-muted)]">
-          Inside every platform, services are now split intelligently by importance.
-          Followers and subscribers appear first, and each section starts from the
-          cheapest offer upward.
-        </p>
-      </section>
+    <div className="space-y-5">
+      <PageHeader
+        eyebrow={t("Catalog", "الكتالوج")}
+        title={t("Services", "الخدمات")}
+        description={t(
+          "Provider rate plus the panel margin, shown per 1,000 units. Refill and cancel flags come from the provider.",
+          "سعر المزود مع هامش اللوحة، معروض لكل 1000 وحدة. خيارات التعويض والإلغاء تأتي من المزود."
+        )}
+        actions={
+          <span className="num-sm text-ink-mute">
+            {t(
+              `${formatNumber(visibleCount)} of ${formatNumber(
+                counts.all
+              )} services`,
+              `${formatNumber(visibleCount)} من ${formatNumber(
+                counts.all
+              )} خدمة`
+            )}
+          </span>
+        }
+      />
 
-      <section className="sticky top-20 z-20">
-        <div className="glass-card rounded-3xl border border-[var(--color-border)] px-4 py-4 shadow-2xl shadow-black/10">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-            <div className="relative flex-1">
-              <span className="pointer-events-none absolute left-4 top-1/2 -translate-y-1/2 text-[var(--color-text-muted)]">
-                <svg
-                  width="18"
-                  height="18"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                >
-                  <circle cx="11" cy="11" r="7" />
-                  <path d="m20 20-3.5-3.5" />
-                </svg>
-              </span>
-              <input
-                type="search"
-                value={searchTerm}
-                onChange={(event) => setSearchTerm(event.target.value)}
-                placeholder="Search by service name, provider category, or platform..."
-                className="w-full rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] py-3 pl-12 pr-4 text-sm text-[var(--color-text-primary)] outline-none transition-all duration-200 placeholder:text-[var(--color-text-muted)] focus:border-[var(--color-accent)] focus:ring-2 focus:ring-[var(--color-accent)]/20"
-              />
-            </div>
+      <div className="sticky top-14 z-20 -mx-4 border-b border-line bg-canvas px-4 py-3 sm:-mx-6 sm:px-6 lg:static lg:mx-0 lg:border-0 lg:bg-transparent lg:px-0 lg:py-0">
+        <div className="space-y-3">
+          <SearchInput
+            label={t("Search services", "بحث في الخدمات")}
+            value={search}
+            onChange={setSearch}
+            placeholder={t(
+              "Search by service name, ID, category, or platform",
+              "ابحث باسم الخدمة أو المعرف أو القسم أو المنصة"
+            )}
+          />
 
-            <div className="flex flex-wrap items-center gap-3 text-sm">
-              <SummaryPill label="Platforms" value={String(groupedServices.length)} />
-              <SummaryPill label="Services" value={String(visibleServices.length)} />
-              <SummaryPill label="Currency" value={APP_CONFIG.currency.code} />
-            </div>
+          <div className="scroll-x scrollbar-none flex items-center gap-1.5 pb-0.5">
+            <button
+              type="button"
+              className="chip"
+              aria-pressed={effectiveFilter === "all"}
+              onClick={() => {
+                setPlatformFilter("all");
+                setSearch("");
+              }}
+            >
+              {t("All platforms", "كل المنصات")}
+              <span className="chip-count">{formatNumber(counts.all)}</span>
+            </button>
+            {groups.map((group) => (
+              <button
+                key={group.platform.key}
+                type="button"
+                className="chip"
+                aria-pressed={effectiveFilter === group.platform.key}
+                onClick={() => {
+                  setPlatformFilter(group.platform.key);
+                  setSearch("");
+                }}
+              >
+                <PlatformIcon platform={group.platform.key} className="h-3.5 w-3.5" />
+                {group.platform.label}
+                <span className="chip-count">
+                  {formatNumber(counts.byPlatform[group.platform.key] ?? 0)}
+                </span>
+              </button>
+            ))}
           </div>
         </div>
-      </section>
+      </div>
 
       {loading ? (
-        <ServicesSkeleton />
+        <SkeletonRows rows={8} />
       ) : error ? (
-        <ErrorState message={error} />
-      ) : groupedServices.length === 0 ? (
-        <EmptyState hasSearch={normalizedSearchTerm.length > 0} />
-      ) : (
-        <section className="space-y-4">
-          {groupedServices.map((group) => {
-            const isOpen = effectiveOpenPlatforms.includes(group.platform.key);
-            const lowestPrice = group.services[0]
-              ? formatCurrency(getServicePrice(group.services[0]))
-              : "—";
-            const sections = getServiceSections(group.services);
-
-            return (
-              <div
-                key={group.platform.key}
-                className="glass-card overflow-hidden rounded-3xl border border-[var(--color-border)]"
+        <ErrorState
+          title={t("Catalog unavailable", "الكتالوج غير متاح")}
+          message={error}
+          onRetry={() => setReloadKey((value) => value + 1)}
+        />
+      ) : visibleGroups.length === 0 ? (
+        <EmptyState
+          icon="search"
+          title={
+            query
+              ? t("No matching services", "لا توجد خدمات مطابقة")
+              : t("No services available", "لا توجد خدمات متاحة")
+          }
+          description={
+            query
+              ? t(
+                  "Try a shorter keyword, a service ID, or a different platform.",
+                  "جرّب كلمة أقصر أو معرف خدمة أو منصة أخرى."
+                )
+              : t(
+                  "The provider returned an empty catalog. Try again in a moment.",
+                  "أعاد المزود كتالوجًا فارغًا. حاول بعد قليل."
+                )
+          }
+          action={
+            query ? (
+              <button
+                type="button"
+                className="btn btn-secondary btn-sm"
+                onClick={() => setSearch("")}
               >
-                <button
-                  type="button"
-                  onClick={() => togglePlatform(group.platform.key)}
-                  className={`flex w-full items-center justify-between gap-4 bg-gradient-to-r px-5 py-5 text-left transition-colors duration-200 hover:bg-[var(--color-bg-tertiary)]/35 ${group.platform.accentClass}`}
-                >
-                  <div className="min-w-0 space-y-2">
-                    <div className="flex flex-wrap items-center gap-3">
-                      <span className="flex h-11 w-11 items-center justify-center rounded-2xl border border-white/10 bg-black/15 text-[var(--color-text-primary)]">
-                        <PlatformIcon platform={group.platform.key} className="h-6 w-6" />
-                      </span>
-                      <div className="min-w-0">
-                        <h2 className="text-lg font-semibold text-[var(--color-text-primary)]">
-                          {group.platform.label}
-                        </h2>
-                        <p className="text-xs text-[var(--color-text-muted)]">
-                          {group.services.length} services across {sections.length} smart sections
-                        </p>
-                      </div>
-                      <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-tertiary)] px-3 py-1 text-xs font-medium text-[var(--color-text-secondary)]">
-                        Starts at {lowestPrice}
-                      </span>
-                    </div>
-                    <p className="text-sm text-[var(--color-text-muted)]">
-                      Followers and subscribers are shown first, then the rest by demand
-                      priority and price.
-                    </p>
-                  </div>
-
-                  <span
-                    className={`shrink-0 rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] p-3 text-[var(--color-text-secondary)] transition-transform duration-200 ${
-                      isOpen ? "rotate-180" : ""
-                    }`}
-                  >
-                    <svg
-                      width="18"
-                      height="18"
-                      viewBox="0 0 24 24"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="2"
-                    >
-                      <path d="m6 9 6 6 6-6" />
-                    </svg>
-                  </span>
-                </button>
-
-                {isOpen ? <ServicesSections sections={sections} /> : null}
-              </div>
-            );
-          })}
-        </section>
+                {t("Clear search", "مسح البحث")}
+              </button>
+            ) : undefined
+          }
+        />
+      ) : (
+        <div className="space-y-4">
+          {visibleGroups.map((group) => (
+            <PlatformSection
+              key={group.platform.key}
+              group={group}
+              expandAll={query.length > 0}
+            />
+          ))}
+        </div>
       )}
     </div>
   );
 }
 
-function SummaryPill({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-4 py-2">
-      <p className="text-[11px] uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-semibold text-[var(--color-text-primary)]">
-        {value}
-      </p>
-    </div>
-  );
-}
-
-function ServicesSections({
-  sections,
+function PlatformSection({
+  group,
+  expandAll,
 }: {
-  sections: ServiceSection<ServiceItem>[];
+  group: PlatformGroup;
+  expandAll: boolean;
 }) {
+  const { t } = useLanguage();
+  const sections = getServiceSections(group.services, group.platform.key);
+  const from = minServicePrice(group.services);
+  const [expandedSections, setExpandedSections] = useState<string[]>([]);
+  const limit = 25;
+
   return (
-    <div className="border-t border-[var(--color-border)]">
-      {sections.map((section, index) => (
-        <div
-          key={section.key}
-          className={index === 0 ? "" : "border-t border-[var(--color-border)]/70"}
-        >
-          <div className="bg-[var(--color-bg-tertiary)]/35 px-5 py-4">
-            <div className="flex flex-wrap items-center gap-3">
-              <h3 className="text-base font-semibold text-[var(--color-text-primary)]">
-                {section.label}
-              </h3>
-              <span className="rounded-full border border-[var(--color-border)] bg-[var(--color-bg-secondary)] px-3 py-1 text-xs font-medium text-[var(--color-text-secondary)]">
-                {section.services.length} offers
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-[var(--color-text-muted)]">
-              {section.description}
+    <section className="panel overflow-hidden">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-4 py-3">
+        <div className="flex min-w-0 items-center gap-2.5">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-sm)] border border-line bg-subtle text-ink-soft">
+            <PlatformIcon platform={group.platform.key} className="h-4 w-4" />
+          </span>
+          <div className="min-w-0">
+            <h2 className="truncate text-[14px] font-semibold text-ink">
+              {group.platform.label}
+            </h2>
+            <p className="text-[11.5px] text-ink-mute">
+              {t(
+                `${formatNumber(group.services.length)} services · ${
+                  sections.length
+                } ${sections.length === 1 ? "section" : "sections"}`,
+                `${formatNumber(group.services.length)} خدمة · ${
+                  sections.length
+                } قسم`
+              )}
             </p>
           </div>
+        </div>
+        {from !== null && from !== Number.POSITIVE_INFINITY ? (
+          <p className="text-[11.5px] text-ink-mute">
+            {t("From", "من")}{" "}
+            <span className="num-sm font-medium text-ink">{formatCurrency(from)}</span>{" "}
+            {t("/ 1k", "/ 1000")}
+          </p>
+        ) : null}
+      </header>
 
-          <div className="hidden overflow-x-auto lg:block">
-            <table className="w-full min-w-[920px]">
+      {sections.map((section) => {
+        const expanded =
+          expandAll || expandedSections.includes(section.key);
+        const visibleServices = expanded
+          ? section.services
+          : section.services.slice(0, limit);
+        const hiddenCount = section.services.length - visibleServices.length;
+
+        return (
+        <div key={section.key} className="border-b border-line last:border-b-0">
+          <div className="flex items-center justify-between gap-3 bg-subtle px-4 py-2">
+            <h3 className="text-[12px] font-semibold text-ink">{section.label}</h3>
+            <span className="num-sm text-[11px] text-ink-mute">
+              {formatNumber(section.services.length)}
+            </span>
+          </div>
+
+          <div className="scroll-x hidden md:block">
+            <table className="data-table min-w-[860px]">
               <thead>
-                <tr className="bg-black/5">
-                  <th className="px-5 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                    ID
-                  </th>
-                  <th className="px-5 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                    Service
-                  </th>
-                  <th className="px-5 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                    Provider Category
-                  </th>
-                  <th className="px-5 py-4 text-left text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                    Min / Max
-                  </th>
-                  <th className="px-5 py-4 text-right text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                    Our Price
-                  </th>
-                  <th className="px-5 py-4 text-center text-xs font-semibold uppercase tracking-[0.16em] text-[var(--color-text-muted)]">
-                    Action
-                  </th>
+                <tr>
+                  <th className="w-16">{t("ID", "المعرف")}</th>
+                  <th>{t("Service", "الخدمة")}</th>
+                  <th>{t("Avg. time", "متوسط الوقت")}</th>
+                  <th className="cell-end">{t("Min / Max", "الأدنى / الأقصى")}</th>
+                  <th className="cell-end">{t("Rate / 1k", "السعر / 1000")}</th>
+                  <th className="text-center">{t("Refill", "تعويض")}</th>
+                  <th className="text-center">{t("Cancel", "إلغاء")}</th>
+                  <th className="cell-end">{t("Action", "إجراء")}</th>
                 </tr>
               </thead>
               <tbody>
-                {section.services.map((service, rowIndex) => (
-                  <tr
-                    key={service.id}
-                    className={`border-t border-[var(--color-border)]/60 ${
-                      rowIndex % 2 === 0 ? "bg-black/5" : "bg-transparent"
-                    }`}
-                  >
-                    <td className="px-5 py-4 align-top text-sm text-[var(--color-text-secondary)]">
-                      #{service.id}
-                    </td>
-                    <td className="px-5 py-4 align-top">
-                      <div className="space-y-1">
-                        <p className="text-sm font-semibold text-[var(--color-text-primary)]">
-                          {service.name}
-                        </p>
-                        <p className="text-xs text-[var(--color-text-muted)]">
-                          Sorted from the cheapest to the most expensive in this section.
-                        </p>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 align-top text-sm text-[var(--color-text-secondary)]">
-                      {service.category}
-                    </td>
-                    <td className="px-5 py-4 align-top text-sm text-[var(--color-text-secondary)]">
-                      {service.min.toLocaleString("en-IN")} /{" "}
-                      {service.max.toLocaleString("en-IN")}
-                    </td>
-                    <td className="px-5 py-4 text-right align-top">
-                      <div className="space-y-1">
-                        <p className="text-lg font-bold text-emerald-300">
-                          {formatCurrency(getServicePrice(service))}
-                        </p>
-                        <p className="text-xs text-[var(--color-text-muted)]">
-                          per 1000 units
-                        </p>
-                      </div>
-                    </td>
-                    <td className="px-5 py-4 text-center align-middle">
-                      <Link
-                        href={`/new-order?service=${service.id}`}
-                        className="inline-flex items-center gap-1.5 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10 px-4 py-2 text-xs font-semibold text-[var(--color-accent)] transition-all duration-200 hover:bg-[var(--color-accent)]/20 hover:border-[var(--color-accent)]/50 active:scale-95"
-                      >
-                        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                          <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-                        </svg>
-                        Order
-                      </Link>
-                    </td>
-                  </tr>
+                {visibleServices.map((service) => (
+                  <ServiceRow key={service.id} service={service} />
                 ))}
               </tbody>
             </table>
           </div>
 
-          <div className="grid gap-3 p-4 lg:hidden">
-            {section.services.map((service) => (
-              <article
-                key={service.id}
-                className="rounded-2xl border border-[var(--color-border)] bg-[var(--color-bg-secondary)]/70 p-4"
-              >
-                <div className="flex items-start justify-between gap-3">
-                  <div className="min-w-0">
-                    <p className="text-xs uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
-                      #{service.id}
-                    </p>
-                    <h4 className="mt-1 text-base font-semibold text-[var(--color-text-primary)]">
-                      {service.name}
-                    </h4>
-                    <p className="mt-1 text-xs text-[var(--color-text-muted)]">
-                      {service.category}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-lg font-bold text-emerald-300">
-                      {formatCurrency(getServicePrice(service))}
-                    </p>
-                    <p className="text-xs text-[var(--color-text-muted)]">per 1000</p>
-                  </div>
-                </div>
-
-                <div className="mt-4 grid grid-cols-2 gap-3 text-sm">
-                  <MetaTile label="Type" value={service.type || "Default"} />
-                  <MetaTile
-                    label="Min / Max"
-                    value={`${service.min.toLocaleString("en-IN")} / ${service.max.toLocaleString("en-IN")}`}
-                  />
-                </div>
-
-                <Link
-                  href={`/new-order?service=${service.id}`}
-                  className="mt-3 flex w-full items-center justify-center gap-2 rounded-xl border border-[var(--color-accent)]/30 bg-[var(--color-accent)]/10 py-2.5 text-sm font-semibold text-[var(--color-accent)] transition-all duration-200 hover:bg-[var(--color-accent)]/20 active:scale-[0.98]"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                    <circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>
-                  </svg>
-                  Order Now
-                </Link>
-              </article>
+          <div className="divide-y divide-line md:hidden">
+            {visibleServices.map((service) => (
+              <ServiceCard key={service.id} service={service} />
             ))}
           </div>
+
+          {hiddenCount > 0 || (!expandAll && expanded) ? (
+            <div className="flex items-center justify-between gap-3 border-t border-line bg-subtle px-4 py-2">
+              <span className="text-[11.5px] text-ink-mute">
+                {expanded
+                  ? t(
+                      `${formatNumber(section.services.length)} shown`,
+                      `${formatNumber(section.services.length)} معروضة`
+                    )
+                  : t(
+                      `${formatNumber(hiddenCount)} more in this section`,
+                      `${formatNumber(hiddenCount)} إضافية في هذا القسم`
+                    )}
+              </span>
+              <button
+                type="button"
+                className="text-[11.5px] font-medium text-accent hover:underline"
+                onClick={() =>
+                  setExpandedSections((current) =>
+                    current.includes(section.key)
+                      ? current.filter((key) => key !== section.key)
+                      : [...current, section.key]
+                  )
+                }
+              >
+                {expanded
+                  ? t("Show fewer", "عرض أقل")
+                  : t(
+                      `Show all ${formatNumber(section.services.length)}`,
+                      `عرض كل ${formatNumber(section.services.length)}`
+                    )}
+              </button>
+            </div>
+          ) : null}
         </div>
-      ))}
-    </div>
+        );
+      })}
+    </section>
   );
 }
 
-function MetaTile({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="rounded-2xl border border-[var(--color-border)] bg-black/10 px-3 py-3">
-      <p className="text-[11px] uppercase tracking-[0.14em] text-[var(--color-text-muted)]">
-        {label}
-      </p>
-      <p className="mt-1 text-sm font-medium text-[var(--color-text-primary)]">
-        {value}
-      </p>
-    </div>
-  );
-}
+function ServiceRow({ service }: { service: ServiceItem }) {
+  const { language, t, pick } = useLanguage();
+  const guide = getServiceGuidance(service);
 
-function ServicesSkeleton() {
   return (
-    <div className="space-y-4">
-      {Array.from({ length: 4 }).map((_, index) => (
-        <div
-          key={index}
-          className="glass-card rounded-3xl border border-[var(--color-border)] p-5"
+    <tr>
+      <td>
+        <span className="num-sm text-ink-mute">#{service.id}</span>
+      </td>
+      <td>
+        <p className="cell-strong max-w-[420px] leading-5">{service.name}</p>
+        <p className="mt-0.5 text-[11.5px] text-ink-mute">{service.category}</p>
+        <p className="mt-0.5 max-w-[420px] truncate text-[10.5px] text-ink-mute">
+          {pick(guide.targetLabel)} ·{" "}
+          <span dir="ltr" className="font-mono">
+            {pick(guide.example)}
+          </span>
+        </p>
+      </td>
+      <td className="whitespace-nowrap text-[12px]">
+        {formatAverageTimeBilingual(service.averageTime, language)}
+      </td>
+      <td className="cell-end num-sm whitespace-nowrap">
+        {formatNumber(service.min)} / {formatNumber(service.max)}
+      </td>
+      <td className="cell-end">
+        <span className="num-sm font-semibold text-ink">
+          {formatCurrency(getServicePrice(service))}
+        </span>
+      </td>
+      <td className="text-center">
+        {service.refill ? (
+          <span className="text-[11.5px] font-medium text-positive">
+            {t("Yes", "نعم")}
+          </span>
+        ) : (
+          <span className="text-[11.5px] text-ink-mute">—</span>
+        )}
+      </td>
+      <td className="text-center">
+        {service.cancel ? (
+          <span className="text-[11.5px] font-medium text-ink-soft">
+            {t("Yes", "نعم")}
+          </span>
+        ) : (
+          <span className="text-[11.5px] text-ink-mute">—</span>
+        )}
+      </td>
+      <td className="cell-end">
+        <Link
+          href={`/new-order?service=${service.id}`}
+          className="btn btn-secondary btn-sm"
         >
-          <div className="animate-pulse space-y-4">
-            <div className="flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3">
-                <div className="h-11 w-11 rounded-2xl bg-white/10" />
-                <div className="space-y-2">
-                  <div className="h-5 w-40 rounded-full bg-white/10" />
-                  <div className="h-4 w-52 rounded-full bg-white/5" />
-                </div>
-              </div>
-              <div className="h-12 w-12 rounded-2xl bg-white/10" />
-            </div>
-            <div className="space-y-3">
-              <div className="h-16 rounded-2xl bg-white/5" />
-              <div className="h-20 rounded-2xl bg-white/5" />
-              <div className="h-20 rounded-2xl bg-white/5" />
-            </div>
-          </div>
+          {t("Order", "اطلب")}
+        </Link>
+      </td>
+    </tr>
+  );
+}
+
+function ServiceCard({ service }: { service: ServiceItem }) {
+  const { language, t, pick } = useLanguage();
+  const guide = getServiceGuidance(service);
+
+  return (
+    <div className="p-3.5">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <p className="num-sm text-[11px] text-ink-mute">#{service.id}</p>
+          <p className="mt-1 text-[13px] font-medium leading-5 text-ink">
+            {service.name}
+          </p>
+          <p className="mt-0.5 text-[11.5px] text-ink-mute">{service.category}</p>
+          <p className="mt-0.5 line-clamp-1 text-[10.5px] text-ink-mute">
+            {pick(guide.targetLabel)} ·{" "}
+            <span dir="ltr" className="font-mono">
+              {pick(guide.example)}
+            </span>
+          </p>
         </div>
-      ))}
-    </div>
-  );
-}
+        <div className="shrink-0 text-end">
+          <p className="num-sm font-semibold text-ink">
+            {formatCurrency(getServicePrice(service))}
+          </p>
+          <p className="text-[10.5px] text-ink-mute">{t("per 1k", "لكل 1000")}</p>
+        </div>
+      </div>
 
-function ErrorState({ message }: { message: string }) {
-  return (
-    <div className="glass-card rounded-3xl border border-red-500/20 bg-red-500/5 p-6 text-center">
-      <h2 className="text-lg font-semibold text-red-300">Unable to load services</h2>
-      <p className="mt-2 text-sm text-red-200/80">{message}</p>
-    </div>
-  );
-}
+      <dl className="mt-2.5 grid grid-cols-2 gap-x-4 gap-y-1 text-[11.5px]">
+        <div className="flex justify-between gap-2">
+          <dt className="text-ink-mute">{t("Range", "النطاق")}</dt>
+          <dd className="num-sm text-ink">
+            {formatNumber(service.min)}–{formatNumber(service.max)}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt className="text-ink-mute">{t("Time", "الوقت")}</dt>
+          <dd className="truncate text-ink">
+            {formatAverageTimeBilingual(service.averageTime, language)}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt className="text-ink-mute">{t("Refill", "تعويض")}</dt>
+          <dd className={service.refill ? "text-positive" : "text-ink-mute"}>
+            {service.refill ? t("Yes", "نعم") : t("No", "لا")}
+          </dd>
+        </div>
+        <div className="flex justify-between gap-2">
+          <dt className="text-ink-mute">{t("Cancel", "إلغاء")}</dt>
+          <dd className="text-ink-soft">
+            {service.cancel ? t("Yes", "نعم") : t("No", "لا")}
+          </dd>
+        </div>
+      </dl>
 
-function EmptyState({ hasSearch }: { hasSearch: boolean }) {
-  return (
-    <div className="glass-card rounded-3xl border border-[var(--color-border)] p-8 text-center">
-      <p className="text-lg font-semibold text-[var(--color-text-primary)]">
-        {hasSearch ? "No services match your search" : "No services available"}
-      </p>
-      <p className="mt-2 text-sm text-[var(--color-text-muted)]">
-        {hasSearch
-          ? "Try a different keyword or clear the search to view the full catalog."
-          : "The provider did not return any services right now."}
-      </p>
+      <Link
+        href={`/new-order?service=${service.id}`}
+        className="btn btn-secondary btn-sm mt-3 w-full"
+      >
+        <Icon name="plus" size={13} />
+        {t("Order this service", "اطلب هذه الخدمة")}
+      </Link>
     </div>
   );
 }

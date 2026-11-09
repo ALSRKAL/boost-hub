@@ -1,28 +1,49 @@
 import { NextResponse } from "next/server";
-import { fetchProviderServices, mapProviderServiceToPublic } from "@/lib/provider";
+import {
+  fetchProviderServices,
+  mapProviderServiceToPublic,
+  type PublicService,
+} from "@/lib/provider";
 
+export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const CACHE_TTL_MS = 60_000;
+
+let cached: { at: number; data: PublicService[] } | null = null;
+
 export async function GET() {
+  if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
+    return NextResponse.json(cached.data, {
+      headers: { "Cache-Control": "no-store" },
+    });
+  }
+
   try {
     const services = (await fetchProviderServices())
       .map(mapProviderServiceToPublic)
-      .filter((item): item is NonNullable<typeof item> => item !== null);
+      .filter((item): item is PublicService => item !== null)
+      // Zero-rate services cannot be ordered and are not sellable.
+      .filter((item) => Number.parseFloat(item.price) > 0)
+      // The provider's "test" service is not orderable through its API.
+      .filter((item) => item.name.trim().toLowerCase() !== "test")
+      .sort((left, right) => {
+        if (left.category !== right.category) {
+          return left.category.localeCompare(right.category);
+        }
+        return left.name.localeCompare(right.name);
+      });
+
+    cached = { at: Date.now(), data: services };
 
     return NextResponse.json(services, {
-      headers: {
-        "Cache-Control": "no-store",
-      },
+      headers: { "Cache-Control": "no-store" },
     });
   } catch (error) {
     console.error("Services API route failed:", error);
+
     return NextResponse.json(
-      {
-        error:
-          error instanceof Error
-            ? error.message
-            : "Unable to fetch services right now.",
-      },
+      { error: "Unable to load the service catalog right now." },
       { status: 500 }
     );
   }

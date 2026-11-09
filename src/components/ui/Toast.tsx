@@ -1,12 +1,18 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type ReactNode,
+} from "react";
+import Icon, { type IconName } from "@/components/ui/Icon";
 
 export type ToastType = "success" | "error" | "info";
 
 export interface ToastMessage {
   id: string;
-  message: string;
+  message: ReactNode;
   type: ToastType;
 }
 
@@ -15,16 +21,10 @@ interface ToastProps {
   onRemove: (id: string) => void;
 }
 
-const icons: Record<ToastType, string> = {
-  success: "✅",
-  error: "❌",
-  info: "ℹ️",
-};
-
-const colors: Record<ToastType, string> = {
-  success: "border-green-500/30 bg-green-500/10 text-green-300",
-  error: "border-red-500/30 bg-red-500/10 text-red-300",
-  info: "border-blue-500/30 bg-blue-500/10 text-blue-300",
+const tone: Record<ToastType, { icon: IconName; className: string }> = {
+  success: { icon: "check", className: "text-positive" },
+  error: { icon: "alert", className: "text-danger" },
+  info: { icon: "info", className: "text-info" },
 };
 
 function ToastItem({
@@ -35,27 +35,26 @@ function ToastItem({
   onRemove: (id: string) => void;
 }) {
   useEffect(() => {
-    const timer = setTimeout(() => onRemove(toast.id), 4000);
-    return () => clearTimeout(timer);
+    const timer = window.setTimeout(() => onRemove(toast.id), 6000);
+    return () => window.clearTimeout(timer);
   }, [toast.id, onRemove]);
+
+  const { icon, className } = tone[toast.type];
 
   return (
     <div
-      className={`
-        flex items-center gap-3 px-4 py-3 rounded-xl border backdrop-blur-xl
-        shadow-xl shadow-black/20 animate-in
-        ${colors[toast.type]}
-      `}
+      className="pointer-events-auto flex items-start gap-3 rounded-md border border-line-strong bg-surface p-3 shadow-[var(--shadow-pop)]"
+      role={toast.type === "error" ? "alert" : "status"}
     >
-      <span className="text-lg shrink-0">{icons[toast.type]}</span>
-      <p className="text-sm font-medium flex-1">{toast.message}</p>
+      <Icon name={icon} size={15} className={`mt-0.5 shrink-0 ${className}`} />
+      <p className="min-w-0 flex-1 text-[13px] leading-5 text-ink">{toast.message}</p>
       <button
+        type="button"
         onClick={() => onRemove(toast.id)}
-        className="shrink-0 opacity-60 hover:opacity-100 transition-opacity cursor-pointer"
+        className="-m-1 shrink-0 rounded p-1 text-ink-mute transition-colors hover:bg-sunken hover:text-ink"
+        aria-label="Dismiss notification"
       >
-        <svg width="14" height="14" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" d="M6 18L18 6M6 6l12 12" />
-        </svg>
+        <Icon name="x" size={13} />
       </button>
     </div>
   );
@@ -63,30 +62,39 @@ function ToastItem({
 
 export default function Toast({ toasts, onRemove }: ToastProps) {
   if (toasts.length === 0) return null;
+
   return (
-    <div className="fixed top-4 right-4 z-[100] flex flex-col gap-2 w-80 max-w-[calc(100vw-2rem)]">
-      {toasts.map((t) => (
-        <ToastItem key={t.id} toast={t} onRemove={onRemove} />
+    <div
+      className="pointer-events-none fixed inset-x-3 bottom-3 z-[100] flex flex-col gap-2 sm:inset-x-auto sm:end-4 sm:bottom-4 sm:w-[360px]"
+      aria-live="polite"
+      aria-atomic="false"
+    >
+      {toasts.map((toast) => (
+        <ToastItem key={toast.id} toast={toast} onRemove={onRemove} />
       ))}
     </div>
   );
 }
 
 // ============================================================
-// Hook — useToast
+// Hook
 // ============================================================
+
+let toastSequence = 0;
 
 export function useToast() {
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  const addToast = (message: string, type: ToastType = "info") => {
-    const id = Date.now().toString();
-    setToasts((prev) => [...prev, { id, message, type }]);
-  };
+  const removeToast = useCallback((id: string) => {
+    setToasts((current) => current.filter((toast) => toast.id !== id));
+  }, []);
 
-  const removeToast = (id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
-  };
+  const addToast = useCallback((message: ReactNode, type: ToastType = "info") => {
+    toastSequence += 1;
+    const id = `toast-${Date.now()}-${toastSequence}`;
+    setToasts((current) => [...current, { id, message, type }]);
+    return id;
+  }, []);
 
   return { toasts, addToast, removeToast };
 }

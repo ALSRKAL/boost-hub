@@ -1,14 +1,14 @@
 export default function LoadingSpinner({ size = "md" }: { size?: "sm" | "md" | "lg" }) {
   const sizes: Record<string, string> = {
     sm: "h-4 w-4 border-2",
-    md: "h-8 w-8 border-[3px]",
-    lg: "h-12 w-12 border-4",
+    md: "h-6 w-6 border-2",
+    lg: "h-8 w-8 border-[3px]",
   };
 
   return (
-    <div className="flex items-center justify-center">
+    <div className="flex items-center justify-center" role="status" aria-label="Loading">
       <div
-        className={`${sizes[size]} rounded-full border-[var(--color-bg-tertiary)] border-t-[var(--color-accent)] animate-spin`}
+        className={`${sizes[size]} animate-spin rounded-full border-line-strong border-t-ink`}
       />
     </div>
   );

@@ -15,6 +15,7 @@ import {
   signInWithPopup,
   GoogleAuthProvider,
   signOut as firebaseSignOut,
+  sendPasswordResetEmail,
   type User,
 } from "firebase/auth";
 import {
@@ -52,6 +53,7 @@ interface AuthContextType {
   signUp: (email: string, password: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
   signInWithGoogle: () => Promise<void>;
+  resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
 }
@@ -140,16 +142,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   // ---- Auth Methods ----
 
+  // These methods do not toggle the global `loading` flag: the auth listener
+  // owns that state, and flipping it here would unmount the form mid-request.
   const signUp = useCallback(async (email: string, password: string) => {
     try {
       const auth = getFirebaseAuth();
       setError(null);
-      setLoading(true);
       await createUserWithEmailAndPassword(auth, email, password);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Sign up failed";
-      setError(message);
-      setLoading(false);
+      setError(err instanceof Error ? err.message : "Sign up failed");
       throw err;
     }
   }, []);
@@ -158,12 +159,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const auth = getFirebaseAuth();
       setError(null);
-      setLoading(true);
       await signInWithEmailAndPassword(auth, email, password);
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : "Sign in failed";
-      setError(message);
-      setLoading(false);
+      setError(err instanceof Error ? err.message : "Sign in failed");
       throw err;
     }
   }, []);
@@ -172,12 +170,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const auth = getFirebaseAuth();
       setError(null);
-      setLoading(true);
       await signInWithPopup(auth, googleProvider);
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Google sign in failed";
-      // auth/unauthorized-domain = domain not in Firebase authorized list
       if (message.includes("unauthorized-domain")) {
         setError(
           "This domain is not authorized in Firebase. Add it in Firebase Console → Authentication → Settings → Authorized domains."
@@ -185,7 +181,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else if (!message.includes("popup-closed")) {
         setError(message);
       }
-      setLoading(false);
+      throw err;
+    }
+  }, []);
+
+  const resetPassword = useCallback(async (email: string) => {
+    try {
+      const auth = getFirebaseAuth();
+      setError(null);
+      await sendPasswordResetEmail(auth, email);
+    } catch (err: unknown) {
+      setError(err instanceof Error ? err.message : "Password reset failed");
       throw err;
     }
   }, []);
@@ -214,6 +220,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         signUp,
         signIn,
         signInWithGoogle,
+        resetPassword,
         logout,
         clearError,
       }}

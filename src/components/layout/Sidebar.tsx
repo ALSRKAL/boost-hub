@@ -1,162 +1,259 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
-import { APP_CONFIG, NAV_ITEMS, ADMIN_NAV_ITEMS, USER_ROLES } from "@/lib/constants";
+import { useLanguage } from "@/context/LanguageContext";
+import {
+  APP_CONFIG,
+  NAV_ITEMS,
+  ADMIN_NAV_ITEMS,
+  USER_ROLES,
+  type NavItem,
+} from "@/lib/constants";
+import Icon from "@/components/ui/Icon";
 
-export default function Sidebar() {
+function NavLink({
+  item,
+  active,
+  collapsed,
+  onNavigate,
+}: {
+  item: NavItem;
+  active: boolean;
+  collapsed: boolean;
+  onNavigate?: () => void;
+}) {
+  const { language } = useLanguage();
+  const label = language === "ar" ? item.labelAr : item.label;
+
+  return (
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      aria-current={active ? "page" : undefined}
+      title={collapsed ? label : undefined}
+      className={`relative flex h-8 items-center gap-2.5 rounded-[var(--radius-xs)] px-2 text-[13px] font-medium transition-colors ${
+        active
+          ? "bg-sunken text-ink"
+          : "text-ink-soft hover:bg-subtle hover:text-ink"
+      } ${collapsed ? "justify-center" : ""}`}
+    >
+      {active ? (
+        <span className="absolute inset-y-1 start-0 w-[2px] rounded-full bg-ink" />
+      ) : null}
+      <Icon name={item.icon} size={16} className="shrink-0" />
+      <span className={collapsed ? "sr-only" : "truncate"}>{label}</span>
+    </Link>
+  );
+}
+
+function SidebarContent({
+  collapsed,
+  onNavigate,
+  onToggleCollapsed,
+  onCloseMobile,
+}: {
+  collapsed: boolean;
+  onNavigate?: () => void;
+  onToggleCollapsed?: () => void;
+  onCloseMobile?: () => void;
+}) {
   const pathname = usePathname();
   const { userProfile } = useAuth();
-  const [collapsed, setCollapsed] = useState(false);
-  const [mobileOpen, setMobileOpen] = useState(false);
-
+  const { t } = useLanguage();
   const isAdmin = userProfile?.role === USER_ROLES.admin;
 
-  const isActive = (href: string) => {
-    if (href === "/dashboard") return pathname === "/dashboard";
-    return pathname.startsWith(href);
-  };
+  const isActive = (href: string) =>
+    href === "/dashboard" ? pathname === href : pathname.startsWith(href);
 
-  const navContent = (
-    <>
-      {/* Logo */}
-      <div className="flex items-center gap-3 px-4 py-6 border-b border-[var(--color-border)]">
-        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[var(--color-accent)] to-[var(--color-accent-hover)] flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-[var(--color-accent)]/25 shrink-0">
-          B
-        </div>
-        {!collapsed && (
-          <div className="overflow-hidden">
-            <h1 className="text-lg font-bold text-[var(--color-text-primary)] whitespace-nowrap">
-              {APP_CONFIG.name}
-            </h1>
-            <p className="text-xs text-[var(--color-text-muted)] whitespace-nowrap">
-              Boost Your Socials
-            </p>
-          </div>
-        )}
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div
+        className={`flex h-14 shrink-0 items-center border-b border-line ${
+          collapsed ? "justify-center px-2" : "justify-between px-4"
+        }`}
+      >
+        <Link
+          href="/dashboard"
+          className="flex min-w-0 items-center gap-2.5"
+          onClick={onNavigate}
+        >
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-xs)] bg-ink text-[12px] font-semibold text-white">
+            B
+          </span>
+          {collapsed ? null : (
+            <span className="min-w-0">
+              <span className="block truncate text-[13px] font-semibold leading-4 text-ink">
+                {APP_CONFIG.name}
+              </span>
+              <span className="block text-[10.5px] leading-4 text-ink-mute">
+                {t("Panel", "لوحة")}
+              </span>
+            </span>
+          )}
+        </Link>
+        {onCloseMobile ? (
+          <button
+            type="button"
+            onClick={onCloseMobile}
+            className="flex h-8 w-8 items-center justify-center rounded-[var(--radius-xs)] text-ink-mute hover:bg-sunken hover:text-ink"
+            aria-label={t("Close navigation", "إغلاق التنقل")}
+          >
+            <Icon name="x" size={16} />
+          </button>
+        ) : null}
       </div>
 
-      {/* Main Navigation */}
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
-        <p className="px-3 mb-2 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-          {!collapsed && "Menu"}
-        </p>
-        {NAV_ITEMS.map((item) => (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={() => setMobileOpen(false)}
-            className={`
-              flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200
-              ${
-                isActive(item.href)
-                  ? "bg-[var(--color-accent)]/10 text-[var(--color-accent)] shadow-sm"
-                  : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]"
-              }
-            `}
-          >
-            <span className="text-lg shrink-0">{item.icon}</span>
-            {!collapsed && <span>{item.label}</span>}
-          </Link>
-        ))}
-
-        {/* Admin Section */}
-        {isAdmin && (
-          <>
-            <div className="pt-4 pb-2">
-              <p className="px-3 text-xs font-semibold uppercase tracking-wider text-[var(--color-text-muted)]">
-                {!collapsed && "Admin"}
-              </p>
-            </div>
-            {ADMIN_NAV_ITEMS.map((item) => (
-              <Link
-                key={item.href}
-                href={item.href}
-                onClick={() => setMobileOpen(false)}
-                className={`
-                  flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition-all duration-200
-                  ${
-                    isActive(item.href)
-                      ? "bg-[var(--color-accent)]/10 text-[var(--color-accent)] shadow-sm"
-                      : "text-[var(--color-text-secondary)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)]"
-                  }
-                `}
-              >
-                <span className="text-lg shrink-0">{item.icon}</span>
-                {!collapsed && <span>{item.label}</span>}
-              </Link>
-            ))}
-          </>
+      <nav className="scroll-thin min-h-0 flex-1 overflow-y-auto px-2 py-3">
+        {collapsed ? null : (
+          <p className="rule-label px-2 pb-1.5">{t("Workspace", "مساحة العمل")}</p>
         )}
+        <div className="space-y-0.5">
+          {NAV_ITEMS.map((item) => (
+            <NavLink
+              key={item.href}
+              item={item}
+              active={isActive(item.href)}
+              collapsed={collapsed}
+              onNavigate={onNavigate}
+            />
+          ))}
+        </div>
+
+        {isAdmin ? (
+          <>
+            <div className="my-3 border-t border-line" />
+            {collapsed ? null : (
+              <p className="rule-label px-2 pb-1.5">
+                {t("Administration", "الإدارة")}
+              </p>
+            )}
+            <div className="space-y-0.5">
+              {ADMIN_NAV_ITEMS.map((item) => (
+                <NavLink
+                  key={item.href}
+                  item={item}
+                  active={isActive(item.href)}
+                  collapsed={collapsed}
+                  onNavigate={onNavigate}
+                />
+              ))}
+            </div>
+          </>
+        ) : null}
       </nav>
 
-      {/* Collapse Toggle (Desktop) */}
-      <div className="hidden lg:block p-3 border-t border-[var(--color-border)]">
-        <button
-          onClick={() => setCollapsed(!collapsed)}
-          className="w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-sm text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] hover:bg-[var(--color-bg-tertiary)] transition-all duration-200 cursor-pointer"
-        >
-          <span className="text-lg">{collapsed ? "→" : "←"}</span>
-          {!collapsed && <span>Collapse</span>}
-        </button>
+      <div className="shrink-0 border-t border-line p-2">
+        {onToggleCollapsed ? (
+          <button
+            type="button"
+            onClick={onToggleCollapsed}
+            className={`flex h-8 w-full items-center gap-2.5 rounded-[var(--radius-xs)] px-2 text-[12px] font-medium text-ink-mute transition-colors hover:bg-subtle hover:text-ink ${
+              collapsed ? "justify-center" : ""
+            }`}
+            aria-label={
+              collapsed
+                ? t("Expand navigation", "توسيع التنقل")
+                : t("Collapse navigation", "طي التنقل")
+            }
+            title={collapsed ? t("Expand navigation", "توسيع التنقل") : undefined}
+          >
+            <Icon
+              name={collapsed ? "chevron-right" : "chevron-left"}
+              size={15}
+              className="rtl:rotate-180"
+            />
+            <span className={collapsed ? "sr-only" : ""}>
+              {t("Collapse", "طي")}
+            </span>
+          </button>
+        ) : null}
+        {collapsed ? null : (
+          <p className="px-2 pb-1 pt-2 text-[10.5px] leading-4 text-ink-mute">
+            {t(
+              "Prices include the panel service margin.",
+              "الأسعار تشمل هامش خدمة اللوحة."
+            )}
+          </p>
+        )}
       </div>
-    </>
+    </div>
   );
+}
+
+export default function Sidebar({
+  mobileOpen,
+  onMobileClose,
+  collapsed,
+  onToggleCollapsed,
+}: {
+  mobileOpen: boolean;
+  onMobileClose: () => void;
+  collapsed: boolean;
+  onToggleCollapsed: () => void;
+}) {
+  const pathname = usePathname();
+
+  useEffect(() => {
+    if (mobileOpen) onMobileClose();
+    // Close the drawer whenever the route changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pathname]);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+
+    const originalOverflow = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape") onMobileClose();
+    };
+    document.addEventListener("keydown", onKeyDown);
+
+    return () => {
+      document.removeEventListener("keydown", onKeyDown);
+      document.body.style.overflow = originalOverflow;
+    };
+  }, [mobileOpen, onMobileClose]);
 
   return (
     <>
-      {/* Mobile Hamburger */}
-      <button
-        onClick={() => setMobileOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-2 rounded-xl bg-[var(--color-bg-secondary)] border border-[var(--color-border)] text-[var(--color-text-primary)] shadow-lg cursor-pointer"
-        aria-label="Open menu"
-      >
-        <svg width="24" height="24" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" d="M4 6h16M4 12h16M4 18h16" />
-        </svg>
-      </button>
-
-      {/* Mobile Overlay */}
-      {mobileOpen && (
-        <div
-          className="lg:hidden fixed inset-0 z-40 bg-black/60 backdrop-blur-sm"
-          onClick={() => setMobileOpen(false)}
-        />
-      )}
-
-      {/* Mobile Sidebar */}
       <aside
-        className={`
-          lg:hidden fixed top-0 left-0 z-50 h-full w-72 
-          bg-[var(--color-bg-secondary)]/95 backdrop-blur-xl border-r border-[var(--color-border)]
-          flex flex-col transform transition-transform duration-300 ease-out
-          ${mobileOpen ? "translate-x-0" : "-translate-x-full"}
-        `}
+        className={`fixed inset-y-0 start-0 z-40 hidden border-e border-line bg-surface lg:block ${
+          collapsed ? "w-[60px]" : "w-[232px]"
+        }`}
       >
-        <button
-          onClick={() => setMobileOpen(false)}
-          className="absolute top-4 right-4 p-1 rounded-lg text-[var(--color-text-muted)] hover:text-[var(--color-text-primary)] cursor-pointer"
-          aria-label="Close menu"
-        >
-          <svg width="20" height="20" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" d="M6 18L18 6M6 6l12 12" />
-          </svg>
-        </button>
-        {navContent}
+        <SidebarContent
+          collapsed={collapsed}
+          onToggleCollapsed={onToggleCollapsed}
+        />
       </aside>
 
-      {/* Desktop Sidebar */}
+      {mobileOpen ? (
+        <button
+          type="button"
+          className="fixed inset-0 z-50 bg-ink/30 lg:hidden"
+          onClick={onMobileClose}
+          aria-label="Close navigation"
+          tabIndex={-1}
+        />
+      ) : null}
+
       <aside
-        className={`
-          hidden lg:flex flex-col shrink-0 h-screen sticky top-0
-          bg-[var(--color-bg-secondary)]/80 backdrop-blur-xl border-r border-[var(--color-border)]
-          transition-all duration-300 ease-out
-          ${collapsed ? "w-[72px]" : "w-64"}
-        `}
+        className={`fixed inset-y-0 start-0 z-[60] w-[280px] border-e border-line bg-surface transition-transform duration-150 lg:hidden ${
+          mobileOpen ? "translate-x-0" : "-translate-x-full rtl:translate-x-full"
+        }`}
+        aria-hidden={!mobileOpen}
+        inert={!mobileOpen ? true : undefined}
       >
-        {navContent}
+        <SidebarContent
+          collapsed={false}
+          onCloseMobile={onMobileClose}
+          onNavigate={onMobileClose}
+        />
       </aside>
     </>
   );
