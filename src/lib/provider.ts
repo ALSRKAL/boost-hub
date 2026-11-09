@@ -662,12 +662,16 @@ export function parseProviderNumber(
 
 /**
  * Multiplier applied to the provider rate — never a percentage.
- * `SMM_PROFIT_MARGIN=2.0` means selling rate = provider rate × 2
- * (a 100% markup). Values below 1× would sell below cost and are rejected.
+ * `SMM_PROFIT_MARGIN=2.25` means selling rate = provider rate × 2.25
+ * (a 125% markup). Values below 1× would sell below cost and are rejected.
  */
+export const DEFAULT_PROFIT_MARGIN = 2.25;
+
 export function getProfitMargin(): number {
   const parsed = Number.parseFloat(process.env.SMM_PROFIT_MARGIN ?? "");
-  return Number.isFinite(parsed) && parsed >= 1 ? parsed : 2.0;
+  return Number.isFinite(parsed) && parsed >= 1
+    ? parsed
+    : DEFAULT_PROFIT_MARGIN;
 }
 
 export function calculateSellingRate(providerRate: number): number {

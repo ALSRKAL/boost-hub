@@ -6,6 +6,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import {
   formatCurrency,
+  formatMultiplier,
   formatNumber,
   formatDate,
   formatSignedCurrency,
@@ -26,6 +27,8 @@ import {
   summariseOrderFinancials,
 } from "@/lib/financials";
 import { useAdminProviderInfo } from "@/components/admin/useAdminProviderInfo";
+import { useAdminOrderAutoSync } from "@/components/admin/useAdminOrderAutoSync";
+import { useOrderAutoSync } from "@/components/orders/useOrderAutoSync";
 import { StatusBadge } from "@/components/ui/Badge";
 import Icon from "@/components/ui/Icon";
 import Button from "@/components/ui/Button";
@@ -56,7 +59,7 @@ const SPENT_STATUSES = new Set<OrderDoc["status"]>([
   "partial",
 ]);
 
-const DEFAULT_PROFIT_MARGIN = 2;
+const DEFAULT_PROFIT_MARGIN = 2.25;
 
 function isRefunded(order: OrderDoc): boolean {
   return order.refundState === "refunded_to_user";
@@ -109,6 +112,28 @@ function DashboardContent({
     () => summariseOrderFinancials(orders, effectiveMargin),
     [orders, effectiveMargin]
   );
+  const hasSyncableOrders = useMemo(
+    () =>
+      orders.some(
+        (order) =>
+          ACTIVE_STATUSES.has(order.status) ||
+          order.status === "partial" ||
+          order.refundState === "awaiting_provider_refund" ||
+          order.needsReconciliation ||
+          ((order.status === "cancelled" || order.status === "failed") &&
+            order.refundState !== "refunded_to_user")
+      ),
+    [orders]
+  );
+
+  useOrderAutoSync({
+    userId: isAdmin ? null : userId,
+    enabled: !isAdmin && hasSyncableOrders,
+  });
+  useAdminOrderAutoSync({
+    enabled: isAdmin,
+    onSynced: provider.refresh,
+  });
 
   async function handleSyncNow() {
     if (!user || syncing) return;
@@ -348,11 +373,11 @@ function DashboardContent({
                   }
                 />
                 <Stat
-                  label={t("Active profit margin", "هامش الربح الفعلي")}
+                  label={t("Pricing multiplier", "مضاعف التسعير")}
                   value={
                     provider.profitMargin === null
                       ? "—"
-                      : `${provider.profitMargin.toFixed(1)}x`
+                      : formatMultiplier(provider.profitMargin)
                   }
                   note={
                     provider.profitPercent === null

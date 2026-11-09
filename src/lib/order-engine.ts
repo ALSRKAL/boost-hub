@@ -6,6 +6,7 @@ import {
   calculateTotalCost,
   createProviderOrder,
   fetchProviderServices,
+  getProfitMargin,
   mapProviderServiceToPublic,
   parseProviderNumber,
   ProviderError,
@@ -380,6 +381,7 @@ export async function placeOrder(
           quantity,
           charge: totalCost,
           providerCharge,
+          profitMargin: getProfitMargin(),
           supportsRefill: publicService.refill,
           supportsCancel: publicService.cancel,
           refillWindowHours:

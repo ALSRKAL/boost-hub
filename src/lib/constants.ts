@@ -112,6 +112,12 @@ export function formatNumber(value: number): string {
   return integerFormatter.format(safeValue);
 }
 
+/** Shows a pricing multiplier without losing decimals: 2.25x, 2.5x, 2x. */
+export function formatMultiplier(value: number): string {
+  const safeValue = Number.isFinite(value) ? value : 0;
+  return `${Number(safeValue.toFixed(2))}x`;
+}
+
 export function formatAverageTime(value: string | null | undefined): string {
   if (!value) return "—";
   const trimmed = value.trim();

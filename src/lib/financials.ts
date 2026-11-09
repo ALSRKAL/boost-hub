@@ -9,6 +9,7 @@ export interface FinancialOrder {
   status: string;
   charge?: number | null;
   providerCharge?: number | null;
+  profitMargin?: number | null;
   refundedAmount?: number | null;
   quantity?: number | null;
   remains?: number | null;
@@ -56,13 +57,19 @@ function providerCostMinor(
   profitMargin: number
 ): number {
   const rawProviderCharge = order.providerCharge;
+  const orderMargin =
+    typeof order.profitMargin === "number" &&
+    Number.isFinite(order.profitMargin) &&
+    order.profitMargin >= 1
+      ? order.profitMargin
+      : profitMargin;
   const storedMinor =
     typeof rawProviderCharge === "number" && Number.isFinite(rawProviderCharge)
       ? Math.max(0, toMinor(rawProviderCharge))
       : Math.max(
           0,
           Math.round(
-            toMinor(Number(order.charge ?? 0)) / Math.max(profitMargin, 1)
+            toMinor(Number(order.charge ?? 0)) / Math.max(orderMargin, 1)
           )
         );
 

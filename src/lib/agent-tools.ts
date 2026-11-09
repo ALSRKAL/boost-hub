@@ -1950,7 +1950,7 @@ export const AGENT_TOOLS = [
     function: {
       name: "search_catalog_services",
       description:
-        "Search the live customer catalog. Returns customer-facing services with the 2.0x selling rate per 1,000, estimated charge for the requested quantity, min/max, speed, refill/cancel flags, and exact link guidance. Never returns internal cost or vendor data.",
+        "Search the live customer catalog. Returns customer-facing services with the current selling rate per 1,000, estimated charge for the requested quantity, min/max, speed, refill/cancel flags, and exact link guidance. Never returns internal cost or vendor data.",
       parameters: {
         type: "object",
         properties: {

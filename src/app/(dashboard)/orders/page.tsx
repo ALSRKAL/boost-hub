@@ -18,6 +18,7 @@ import Icon from "@/components/ui/Icon";
 import SearchInput from "@/components/ui/SearchInput";
 import Tabs from "@/components/ui/Tabs";
 import ConfirmDialog from "@/components/ui/ConfirmDialog";
+import { useOrderAutoSync } from "@/components/orders/useOrderAutoSync";
 import { StatusBadge } from "@/components/ui/Badge";
 import {
   EmptyState,
@@ -168,6 +169,25 @@ export default function OrdersPage() {
 
   const deferredSearch = useDeferredValue(search);
   const query = deferredSearch.trim().toLowerCase();
+
+  const hasSyncableOrders = useMemo(
+    () =>
+      orders.some(
+        (order) =>
+          ACTIVE_STATUSES.has(order.status) ||
+          order.status === "partial" ||
+          order.refundState === "awaiting_provider_refund" ||
+          order.needsReconciliation ||
+          ((order.status === "cancelled" || order.status === "failed") &&
+            order.refundState !== "refunded_to_user")
+      ),
+    [orders]
+  );
+
+  useOrderAutoSync({
+    userId: user?.uid,
+    enabled: hasSyncableOrders,
+  });
 
   useEffect(() => {
     const interval = window.setInterval(() => setNowMs(Date.now()), 30_000);
@@ -382,8 +402,8 @@ export default function OrdersPage() {
         eyebrow={t("Ledger", "السجل")}
         title={t("Orders", "الطلبات")}
         description={t(
-          "Every charge, provider reference, refund, and refill window for this account.",
-          "كل خصم ومرجع مزود واسترداد ونافذة تعويض لهذا الحساب."
+          "Every charge, provider reference, refund, and refill window for this account. Status refreshes automatically while this page is open.",
+          "كل خصم ومرجع مزود واسترداد ونافذة تعويض لهذا الحساب. تتحدث الحالة تلقائيًا أثناء فتح هذه الصفحة."
         )}
         actions={
           <span className="num-sm text-ink-mute">

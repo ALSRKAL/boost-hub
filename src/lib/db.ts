@@ -54,6 +54,7 @@ export interface OrderDoc {
   charge: number;
   providerOrderId?: string;
   providerCharge?: number;
+  profitMargin?: number;
   supportsRefill?: boolean;
   supportsCancel?: boolean;
   comments?: string;

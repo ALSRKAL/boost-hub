@@ -11,6 +11,7 @@ import {
 import { createPortal } from "react-dom";
 import AdminGuard from "@/components/admin/AdminGuard";
 import { useAdminProviderInfo } from "@/components/admin/useAdminProviderInfo";
+import { useAdminOrderAutoSync } from "@/components/admin/useAdminOrderAutoSync";
 import { useLanguage } from "@/context/LanguageContext";
 import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
@@ -29,6 +30,7 @@ import {
 } from "@/components/ui/Primitives";
 import {
   formatCurrency,
+  formatMultiplier,
   formatNumber,
   formatSignedCurrency,
 } from "@/lib/constants";
@@ -47,7 +49,7 @@ import {
 type OrderTab = "all" | "attention" | "refunded";
 
 const MAX_ROWS = 200;
-const DEFAULT_PROFIT_MARGIN = 2;
+const DEFAULT_PROFIT_MARGIN = 2.25;
 const PROVIDER_ORDER_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 
 interface ResolutionResponse {
@@ -144,6 +146,11 @@ function AdminOrdersContent() {
     [orders, effectiveMargin]
   );
 
+  useAdminOrderAutoSync({
+    enabled: true,
+    onSynced: provider.refresh,
+  });
+
   const deferredSearch = useDeferredValue(search);
   const query = deferredSearch.trim().toLowerCase();
 
@@ -230,8 +237,8 @@ function AdminOrdersContent() {
         eyebrow={t("Administration", "الإدارة")}
         title={t("All orders", "كل الطلبات")}
         description={t(
-          "Platform-wide ledger with provider references, refund state, and upstream errors.",
-          "سجل شامل للمنصة مع مراجع المزود وحالة الاسترداد وأخطاء المزود."
+          "Platform-wide ledger with provider references, refund state, and upstream errors. Auto-syncs while this page is open.",
+          "سجل شامل للمنصة مع مراجع المزود وحالة الاسترداد وأخطاء المزود. تتم المزامنة تلقائيًا أثناء فتح هذه الصفحة."
         )}
         actions={
           <span className="num-sm text-ink-mute">
@@ -262,11 +269,11 @@ function AdminOrdersContent() {
           }
         />
         <Stat
-          label={t("Active profit margin", "هامش الربح الفعلي")}
+          label={t("Pricing multiplier", "مضاعف التسعير")}
           value={
             provider.profitMargin === null
               ? "—"
-              : `${provider.profitMargin.toFixed(1)}x`
+              : formatMultiplier(provider.profitMargin)
           }
           note={
             provider.profitPercent === null
