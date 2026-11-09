@@ -1,9 +1,10 @@
-import { NextResponse } from "next/server";
+import { NextResponse, type NextRequest } from "next/server";
 import {
   fetchProviderServices,
   mapProviderServiceToPublic,
   type PublicService,
 } from "@/lib/provider";
+import { localize, readApiLanguage } from "@/lib/api-language";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -12,7 +13,8 @@ const CACHE_TTL_MS = 60_000;
 
 let cached: { at: number; data: PublicService[] } | null = null;
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const language = readApiLanguage(request);
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
     return NextResponse.json(cached.data, {
       headers: { "Cache-Control": "no-store" },
@@ -43,7 +45,13 @@ export async function GET() {
     console.error("Services API route failed:", error);
 
     return NextResponse.json(
-      { error: "Unable to load the service catalog right now." },
+      {
+        error: localize(
+          language,
+          "Unable to load the service catalog right now.",
+          "تعذّر تحميل كتالوج الخدمات حاليًا."
+        ),
+      },
       { status: 500 }
     );
   }

@@ -11,7 +11,7 @@ import LoadingSpinner from "@/components/ui/LoadingSpinner";
 
 export default function DashboardLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
-  const { language } = useLanguage();
+  const { language, t } = useLanguage();
   const router = useRouter();
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
@@ -27,7 +27,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       <div className="flex min-h-screen items-center justify-center bg-canvas">
         <div className="flex flex-col items-center gap-3">
           <LoadingSpinner size="lg" />
-          <p className="text-[12px] text-ink-mute">Opening your panel</p>
+          <p className="text-[12px] text-ink-mute">
+            {t("Opening your panel", "جارٍ فتح لوحتك")}
+          </p>
         </div>
       </div>
     );

@@ -570,7 +570,7 @@ function checklistFor(
       id: "no-changes",
       text: b(
         "Do not change the @username, delete the post, or hide the account while the order is Pending or In progress.",
-        "لا تغيّر اسم المستخدم @username أو تحذف المنشور أو تخفِ الحساب أثناء حالة Pending أو In progress."
+        "لا تغيّر اسم المستخدم @username أو تحذف المنشور أو تخفِ الحساب أثناء حالة الانتظار أو التنفيذ."
       ),
     }
   );

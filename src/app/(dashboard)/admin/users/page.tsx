@@ -2,6 +2,7 @@
 
 import { useCallback, useDeferredValue, useEffect, useMemo, useState } from "react";
 import AdminGuard from "@/components/admin/AdminGuard";
+import { useLanguage } from "@/context/LanguageContext";
 import SearchInput from "@/components/ui/SearchInput";
 import { StatusBadge } from "@/components/ui/Badge";
 import {
@@ -14,6 +15,7 @@ import {
 import { formatCurrency, formatNumber, USER_ROLES } from "@/lib/constants";
 import { subscribeAllUsers, timestampToDate, type UserDoc } from "@/lib/db";
 import { sumMoney } from "@/lib/money";
+import { translateErrorMessage } from "@/lib/error-messages";
 
 type RoleFilter = "all" | UserDoc["role"];
 
@@ -26,6 +28,7 @@ export default function AdminUsersPage() {
 }
 
 function UsersContent() {
+  const { language, t } = useLanguage();
   const [users, setUsers] = useState<UserDoc[]>([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -88,39 +91,46 @@ function UsersContent() {
   return (
     <div className="space-y-5">
       <PageHeader
-        eyebrow="Administration"
-        title="Users"
-        description="Directory of every panel account, its role, and current balance."
+        eyebrow={t("Administration", "الإدارة")}
+        title={t("Users", "المستخدمون")}
+        description={t(
+          "Directory of every panel account, its role, and current balance.",
+          "دليل يعرض كل حساب في اللوحة ودوره ورصيده الحالي."
+        )}
         actions={
           <span className="num-sm text-ink-mute">
-            {formatNumber(visibleUsers.length)} of {formatNumber(users.length)}
+            {formatNumber(visibleUsers.length)} {t("of", "من")}{" "}
+            {formatNumber(users.length)}
           </span>
         }
       />
 
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
-        <Stat label="Accounts" value={formatNumber(counts.all)} />
-        <Stat label="Customers" value={formatNumber(counts.users)} />
-        <Stat label="Admins" value={formatNumber(counts.admin)} />
+        <Stat label={t("Accounts", "الحسابات")} value={formatNumber(counts.all)} />
+        <Stat label={t("Customers", "العملاء")} value={formatNumber(counts.users)} />
+        <Stat label={t("Admins", "المديرون")} value={formatNumber(counts.admin)} />
         <Stat
-          label="Total balance held"
+          label={t("Total balance held", "إجمالي الأرصدة")}
           value={formatCurrency(totalBalance)}
-          note="Sum of all account balances"
+          note={t("Sum of all account balances", "مجموع أرصدة جميع الحسابات")}
         />
       </section>
 
       <div className="space-y-3">
         <SearchInput
-          label="Search users"
+          label={t("Search users", "بحث في المستخدمين")}
           value={search}
           onChange={setSearch}
-          placeholder="Search by email, name, UID, role, or balance"
+          placeholder={t(
+            "Search by email, name, UID, role, or balance",
+            "ابحث بالبريد أو الاسم أو المعرف أو الدور أو الرصيد"
+          )}
         />
         <div className="flex flex-wrap items-center gap-1.5">
           {[
-            { key: "all" as const, label: "All users", count: counts.all },
-            { key: "user" as const, label: "Customers", count: counts.users },
-            { key: "admin" as const, label: "Admins", count: counts.admin },
+            { key: "all" as const, label: t("All users", "كل المستخدمين"), count: counts.all },
+            { key: "user" as const, label: t("Customers", "العملاء"), count: counts.users },
+            { key: "admin" as const, label: t("Admins", "المديرون"), count: counts.admin },
           ].map((item) => (
             <button
               key={item.key}
@@ -140,8 +150,8 @@ function UsersContent() {
         <SkeletonRows rows={6} />
       ) : loadError ? (
         <ErrorState
-          title="User directory unavailable"
-          message={loadError}
+          title={t("User directory unavailable", "دليل المستخدمين غير متاح")}
+          message={translateErrorMessage(loadError, language)}
           onRetry={() => {
             setLoading(true);
             setLoadError(null);
@@ -151,11 +161,21 @@ function UsersContent() {
       ) : visibleUsers.length === 0 ? (
         <EmptyState
           icon="users"
-          title={users.length === 0 ? "No accounts yet" : "No users match"}
+          title={
+            users.length === 0
+              ? t("No accounts yet", "لا توجد حسابات بعد")
+              : t("No users match", "لا يوجد مستخدمون مطابقون")
+          }
           description={
             users.length === 0
-              ? "New customer accounts will appear here after their first sign-in."
-              : "Change the role filter or clear the search."
+              ? t(
+                  "New customer accounts will appear here after their first sign-in.",
+                  "ستظهر حسابات العملاء الجديدة هنا بعد أول تسجيل دخول."
+                )
+              : t(
+                  "Change the role filter or clear the search.",
+                  "غيّر تصفية الدور أو امسح البحث."
+                )
           }
         />
       ) : (
@@ -164,22 +184,28 @@ function UsersContent() {
             <table className="data-table min-w-[820px]">
               <thead>
                 <tr>
-                  <th>Account</th>
-                  <th>Role</th>
-                  <th className="cell-end">Balance</th>
-                  <th>Joined</th>
-                  <th>UID</th>
+                  <th>{t("Account", "الحساب")}</th>
+                  <th>{t("Role", "الدور")}</th>
+                  <th className="cell-end">{t("Balance", "الرصيد")}</th>
+                  <th>{t("Joined", "تاريخ الانضمام")}</th>
+                  <th>{t("UID", "المعرف")}</th>
                 </tr>
               </thead>
               <tbody>
                 {visibleUsers.map((user) => (
                   <tr key={user.uid}>
                     <td>
-                      <p className="cell-strong max-w-[280px] truncate">
-                        {user.email || "No email"}
+                      <p
+                        className="cell-strong max-w-[280px] truncate"
+                        data-i18n-ignore
+                      >
+                        {user.email || t("No email", "بلا بريد")}
                       </p>
-                      <p className="mt-0.5 text-[11.5px] text-ink-mute">
-                        {user.displayName || "No display name"}
+                      <p
+                        className="mt-0.5 text-[11.5px] text-ink-mute"
+                        data-i18n-ignore
+                      >
+                        {user.displayName || t("No display name", "بلا اسم عرض")}
                       </p>
                     </td>
                     <td>
@@ -207,18 +233,21 @@ function UsersContent() {
               <article key={user.uid} className="p-3.5">
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="truncate text-[12.5px] font-medium text-ink">
-                      {user.email || "No email"}
+                    <p
+                      className="truncate text-[12.5px] font-medium text-ink"
+                      data-i18n-ignore
+                    >
+                      {user.email || t("No email", "بلا بريد")}
                     </p>
-                    <p className="mt-0.5 text-[11px] text-ink-mute">
-                      {user.displayName || "No display name"}
+                    <p className="mt-0.5 text-[11px] text-ink-mute" data-i18n-ignore>
+                      {user.displayName || t("No display name", "بلا اسم عرض")}
                     </p>
                   </div>
                   <StatusBadge status={user.role} />
                 </div>
                 <div className="mt-2.5 flex items-center justify-between border-t border-line pt-2">
                   <span className="text-[11px] text-ink-mute">
-                    Joined {timestampToDate(user.createdAt)}
+                    {t("Joined", "انضم في")} {timestampToDate(user.createdAt)}
                   </span>
                   <span className="num-sm font-medium text-ink">
                     {formatCurrency(Number(user.balance ?? 0))}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { COLLECTIONS, USER_ROLES } from "@/lib/constants";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import { fetchProviderBalance, getProfitMargin, ProviderError } from "@/lib/provider";
+import { localize, readApiLanguage } from "@/lib/api-language";
 
 export const runtime = "nodejs";
 
@@ -33,10 +34,14 @@ function getBearerToken(authHeader: string | null): string | null {
 }
 
 export async function GET(request: NextRequest) {
+  const language = readApiLanguage(request);
   const token = getBearerToken(request.headers.get("authorization"));
 
   if (!token) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(language, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   let uid: string;
@@ -49,13 +54,19 @@ export async function GET(request: NextRequest) {
       .get();
 
     if (!userSnap.exists || userSnap.get("role") !== USER_ROLES.admin) {
-      return NextResponse.json({ error: "Forbidden." }, { status: 403 });
+      return NextResponse.json(
+        { error: localize(language, "Forbidden.", "ليست لديك صلاحية الوصول.") },
+        { status: 403 }
+      );
     }
 
     uid = decoded.uid;
   } catch (error) {
     console.error("Provider balance auth failed:", error);
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(language, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   if (cached && Date.now() - cached.at < CACHE_TTL_MS) {
@@ -87,7 +98,11 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json(
       {
-        error: "Provider balance is unavailable.",
+        error: localize(
+          language,
+          "Provider balance is unavailable.",
+          "رصيد المزود غير متاح."
+        ),
         code: error instanceof ProviderError ? error.code : "UNKNOWN",
         // The configured margin does not depend on the provider being online.
         ...marginFields(),

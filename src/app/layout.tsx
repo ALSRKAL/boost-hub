@@ -21,14 +21,26 @@ const plexMono = IBM_Plex_Mono({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: {
-    default: `${APP_CONFIG.name} — Panel`,
-    template: `%s · ${APP_CONFIG.name}`,
-  },
-  description: `${APP_CONFIG.name} panel: place orders, track delivery, and manage your balance.`,
-  robots: { index: false, follow: false },
-};
+export async function generateMetadata(): Promise<Metadata> {
+  const cookieStore = await cookies();
+  const cookieLanguage = cookieStore.get(LANGUAGE_COOKIE)?.value;
+  const language = isLanguage(cookieLanguage) ? cookieLanguage : "en";
+
+  return {
+    title: {
+      default:
+        language === "ar"
+          ? `${APP_CONFIG.name} — لوحة`
+          : `${APP_CONFIG.name} — Panel`,
+      template: `%s · ${APP_CONFIG.name}`,
+    },
+    description:
+      language === "ar"
+        ? `${APP_CONFIG.name}: أنشئ الطلبات وتابع التنفيذ وأدر رصيدك.`
+        : `${APP_CONFIG.name} panel: place orders, track delivery, and manage your balance.`,
+    robots: { index: false, follow: false },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: "#f6f5f0",

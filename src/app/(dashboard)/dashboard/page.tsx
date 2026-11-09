@@ -44,6 +44,15 @@ import {
   Stat,
 } from "@/components/ui/Primitives";
 import { needsProviderReview } from "@/lib/order-visibility";
+import {
+  getServiceDisplayCategory,
+  getServiceDisplayName,
+} from "@/lib/services";
+import {
+  localizeErrorCode,
+  localizeSyncSource,
+  translateErrorMessage,
+} from "@/lib/error-messages";
 
 const ACTIVE_STATUSES = new Set<OrderDoc["status"]>([
   "pending",
@@ -65,11 +74,25 @@ function isRefunded(order: OrderDoc): boolean {
   return order.refundState === "refunded_to_user";
 }
 
-function formatSyncSource(source?: OrderSyncMetricDoc["lastRunSource"]): string {
-  if (source === "cron") return "Scheduled";
-  if (source === "sync_secret") return "Secret trigger";
-  if (source === "admin") return "Manual";
-  return "—";
+function displayServiceName(order: OrderDoc, language: "en" | "ar"): string {
+  if (!order.serviceName) {
+    return language === "ar" ? `خدمة ${order.serviceId}` : `Service ${order.serviceId}`;
+  }
+
+  return language === "ar"
+    ? getServiceDisplayName({ name: order.serviceName }, language)
+    : order.serviceName;
+}
+
+function displayServiceCategory(
+  order: OrderDoc,
+  language: "en" | "ar"
+): string {
+  if (!order.category) return language === "ar" ? "غير مصنف" : "Uncategorized";
+
+  return language === "ar"
+    ? getServiceDisplayCategory({ category: order.category }, language)
+    : order.category;
 }
 
 export default function DashboardPage() {
@@ -97,7 +120,7 @@ function DashboardContent({
   balance: number;
 }) {
   const { user } = useAuth();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const { toasts, addToast, removeToast } = useToast();
   const [orders, setOrders] = useState<OrderDoc[]>([]);
   const [deposits, setDeposits] = useState<DepositDoc[]>([]);
@@ -167,22 +190,46 @@ function DashboardContent({
         const errors = Number(summary.errors ?? 0);
         const anomalies = Number(summary.refundAnomalies ?? 0);
         addToast(
-          `Checked ${formatNumber(Number(summary.checked ?? 0))}, updated ${formatNumber(
-            Number(summary.updated ?? 0)
-          )}, refunded ${formatNumber(Number(summary.refunded ?? 0))}, anomalies ${formatNumber(
-            anomalies
-          )}, awaiting ${formatNumber(Number(summary.awaitingProviderRefund ?? 0))}.`,
+          language === "ar"
+            ? `تم فحص ${formatNumber(
+                Number(summary.checked ?? 0)
+              )} وتحديث ${formatNumber(
+                Number(summary.updated ?? 0)
+              )} واسترداد ${formatNumber(
+                Number(summary.refunded ?? 0)
+              )}، مع ${formatNumber(anomalies)} حالة شاذة و${formatNumber(
+                Number(summary.awaitingProviderRefund ?? 0)
+              )} بانتظار الاسترداد.`
+            : `Checked ${formatNumber(
+                Number(summary.checked ?? 0)
+              )}, updated ${formatNumber(
+                Number(summary.updated ?? 0)
+              )}, refunded ${formatNumber(
+                Number(summary.refunded ?? 0)
+              )}, anomalies ${formatNumber(
+                anomalies
+              )}, awaiting ${formatNumber(
+                Number(summary.awaitingProviderRefund ?? 0)
+              )}.`,
           errors > 0 ? "error" : "success"
         );
       } else {
-        addToast("Provider sync complete.", "success");
+        addToast(
+          t("Provider sync complete.", "اكتملت مزامنة المزود."),
+          "success"
+        );
       }
 
       provider.refresh();
     } catch (syncError) {
       console.error("Failed to sync orders:", syncError);
       addToast(
-        syncError instanceof Error ? syncError.message : "The provider sync failed.",
+        translateErrorMessage(
+          syncError instanceof Error
+            ? syncError.message
+            : "The provider sync failed.",
+          language
+        ),
         "error"
       );
     } finally {
@@ -295,7 +342,7 @@ function DashboardContent({
   const providerBalanceLabel = provider.loading
     ? "…"
     : provider.balance === null
-      ? "Unavailable"
+      ? t("Unavailable", "غير متاح")
       : formatCurrency(provider.balance);
 
   return (
@@ -332,7 +379,7 @@ function DashboardContent({
 
       {error ? (
         <ErrorState
-          message={error}
+          message={translateErrorMessage(error, language)}
           onRetry={() => {
             setLoading(true);
             setError(null);
@@ -365,7 +412,7 @@ function DashboardContent({
                   tone={provider.error ? "danger" : "default"}
                   note={
                     provider.error
-                      ? provider.error
+                      ? translateErrorMessage(provider.error, language)
                       : t(
                           `Live ${provider.currency} balance`,
                           `الرصيد المباشر ${provider.currency}`
@@ -441,9 +488,14 @@ function DashboardContent({
           <section className="panel">
             <div className="panel-head">
               <div>
-                <h2 className="text-[13px] font-semibold text-ink">Provider sync</h2>
+                <h2 className="text-[13px] font-semibold text-ink">
+                  {t("Provider sync", "مزامنة المزود")}
+                </h2>
                 <p className="text-[11.5px] text-ink-mute">
-                  Status is written by the scheduled sync and manual triggers.
+                  {t(
+                    "Status is written by the scheduled sync and manual triggers.",
+                    "تُكتب الحالة بواسطة المزامنة المجدولة والتشغيل اليدوي."
+                  )}
                 </p>
               </div>
               <div className="flex flex-wrap items-center gap-3">
@@ -451,7 +503,7 @@ function DashboardContent({
                   href="/admin/orders"
                   className="link-quiet text-[12px] font-medium"
                 >
-                  All orders
+                  {t("All orders", "كل الطلبات")}
                 </Link>
                 <Button
                   variant="secondary"
@@ -460,28 +512,34 @@ function DashboardContent({
                   onClick={handleSyncNow}
                   leadingIcon={<Icon name="refresh" size={13} />}
                 >
-                  Sync now
+                  {t("Sync now", "مزامنة الآن")}
                 </Button>
               </div>
             </div>
             <div className="grid grid-cols-2 gap-px bg-line sm:grid-cols-3 lg:grid-cols-5">
               <SyncItem
-                label="Last run"
+                label={t("Last run", "آخر تشغيل")}
                 value={
                   syncMetrics?.lastRunAt
                     ? timestampToDate(syncMetrics.lastRunAt)
-                    : "Never"
+                    : t("Never", "لم يتم")
                 }
               />
-              <SyncItem label="Source" value={formatSyncSource(syncMetrics?.lastRunSource)} />
               <SyncItem
-                label="Provider balance"
+                label={t("Source", "المصدر")}
+                value={localizeSyncSource(syncMetrics?.lastRunSource, language)}
+              />
+              <SyncItem
+                label={t("Provider balance", "رصيد المزود")}
                 value={providerBalanceLabel}
                 tone={provider.error ? "danger" : undefined}
               />
-              <SyncItem label="Refunded" value={formatNumber(syncMetrics?.refunded ?? 0)} />
               <SyncItem
-                label="Awaiting refund"
+                label={t("Refunded", "المسترد")}
+                value={formatNumber(syncMetrics?.refunded ?? 0)}
+              />
+              <SyncItem
+                label={t("Awaiting refund", "بانتظار الاسترداد")}
                 value={formatNumber(syncMetrics?.awaitingProviderRefund ?? 0)}
                 tone={
                   (syncMetrics?.awaitingProviderRefund ?? 0) > 0 ? "warning" : undefined
@@ -490,7 +548,9 @@ function DashboardContent({
             </div>
             {syncMetrics?.lastError ? (
               <div className="border-t border-line px-4 py-2.5">
-                <Notice tone="danger">{syncMetrics.lastError}</Notice>
+                <Notice tone="danger">
+                  {translateErrorMessage(syncMetrics.lastError, language)}
+                </Notice>
               </div>
             ) : null}
           </section>
@@ -500,17 +560,20 @@ function DashboardContent({
               <div className="panel-head">
                 <div>
                   <h2 className="text-[13px] font-semibold text-ink">
-                    Needs review
+                    {t("Needs review", "بحاجة للمراجعة")}
                   </h2>
                   <p className="text-[11.5px] text-ink-mute">
-                    Provider errors, unknown outcomes, and refund anomalies.
+                    {t(
+                      "Provider errors, unknown outcomes, and refund anomalies.",
+                      "أخطاء المزود والنتائج غير المعروفة وحالات الاسترداد الشاذة."
+                    )}
                   </p>
                 </div>
                 <Link
                   href="/admin/orders"
                   className="link-quiet text-[12px] font-medium"
                 >
-                  Open all orders
+                  {t("Open all orders", "فتح كل الطلبات")}
                 </Link>
               </div>
               <div className="divide-y divide-line">
@@ -523,18 +586,23 @@ function DashboardContent({
                       <p className="num-sm text-[12px] text-ink">
                         {order.providerOrderId ?? order.id.slice(0, 10)}
                       </p>
-                      <p className="mt-0.5 max-w-[360px] truncate text-[11px] text-ink-mute">
-                        {order.serviceName || `Service ${order.serviceId}`} ·{" "}
+                      <p
+                        className="mt-0.5 max-w-[360px] truncate text-[11px] text-ink-mute"
+                        data-i18n-ignore
+                      >
+                        {displayServiceName(order, language)} ·{" "}
                         {order.userEmail || order.userId}
                       </p>
                     </div>
                     <div className="flex items-center gap-2">
                       {order.providerErrorCode ? (
                         <span className="status status-danger">
-                          {order.providerErrorCode}
+                          {localizeErrorCode(order.providerErrorCode, language)}
                         </span>
                       ) : order.refundAnomaly ? (
-                        <span className="status status-warning">REFUND_ANOMALY</span>
+                        <span className="status status-warning">
+                          {t("Refund anomaly", "استرداد شاذ")}
+                        </span>
                       ) : null}
                       <StatusBadge status={order.status} />
                     </div>
@@ -593,16 +661,22 @@ function DashboardContent({
         ) : recentOrders.length === 0 ? (
           <EmptyState
             icon="receipt"
-            title="No orders yet"
+            title={t("No orders yet", "لا توجد طلبات بعد")}
             description={
               isAdmin
-                ? "Customer orders will appear here once they are placed."
-                : "Start from the catalog and place your first order."
+                ? t(
+                    "Customer orders will appear here once they are placed.",
+                    "ستظهر طلبات العملاء هنا بمجرد إنشائها."
+                  )
+                : t(
+                    "Start from the catalog and place your first order.",
+                    "ابدأ من الكتالوج وأنشئ طلبك الأول."
+                  )
             }
             action={
               <Link href="/new-order" className="btn btn-primary btn-sm">
                 <Icon name="plus" size={14} />
-                Place an order
+                {t("Place an order", "إنشاء طلب")}
               </Link>
             }
           />
@@ -649,14 +723,14 @@ function DashboardContent({
                         </td>
                         <td>
                           <p className="cell-strong max-w-[280px] truncate">
-                            {order.serviceName || `Service ${order.serviceId}`}
+                            {displayServiceName(order, language)}
                           </p>
                           <p className="mt-0.5 text-[11.5px] text-ink-mute">
-                            {order.category || "Uncategorized"}
+                            {displayServiceCategory(order, language)}
                           </p>
                         </td>
                         {isAdmin ? (
-                          <td className="max-w-[180px] truncate">
+                          <td className="max-w-[180px] truncate" data-i18n-ignore>
                             {order.userEmail || order.userId}
                           </td>
                         ) : null}
@@ -705,10 +779,13 @@ function DashboardContent({
                           {order.providerOrderId ?? order.id.slice(0, 8)}
                         </p>
                         <p className="mt-1 truncate text-[13px] font-medium text-ink">
-                          {order.serviceName || `Service ${order.serviceId}`}
+                          {displayServiceName(order, language)}
                         </p>
                         {isAdmin ? (
-                          <p className="mt-0.5 truncate text-[11.5px] text-ink-mute">
+                          <p
+                            className="mt-0.5 truncate text-[11.5px] text-ink-mute"
+                            data-i18n-ignore
+                          >
                             {order.userEmail || order.userId}
                           </p>
                         ) : null}
@@ -718,7 +795,7 @@ function DashboardContent({
                     <div className="mt-2.5 flex items-end justify-between gap-3">
                       <span className="text-[11.5px] text-ink-mute">
                         {formatDate(order.createdAt?.toDate?.() ?? null)} ·{" "}
-                        {formatNumber(order.quantity)} units
+                        {formatNumber(order.quantity)} {t("units", "وحدة")}
                       </span>
                       <div className="text-right">
                         <p className="num-sm font-semibold text-ink">
@@ -749,11 +826,14 @@ function DashboardContent({
       {!isAdmin ? (
         <section className="flex flex-wrap items-center justify-between gap-3 border-t border-line pt-4">
           <p className="text-[11.5px] text-ink-mute">
-            Need help with an order? Contact support with the order ID.
+            {t(
+              "Need help with an order? Contact support with the order ID.",
+              "تحتاج مساعدة في طلب؟ تواصل مع الدعم مع ذكر رقم الطلب."
+            )}
           </p>
           <div className="flex items-center gap-3">
             <a href="tel:+967711114569" className="link-quiet text-[12px] font-medium">
-              Call 711114569
+              {t("Call 711114569", "اتصل بـ 711114569")}
             </a>
             <a
               href="https://wa.me/967711114569"
@@ -761,8 +841,8 @@ function DashboardContent({
               rel="noreferrer"
               className="link-quiet flex items-center gap-1 text-[12px] font-medium"
             >
-              WhatsApp
-              <Icon name="external" size={12} />
+              {t("WhatsApp", "واتساب")}
+              <Icon name="external" size={12} className="rtl-flip" />
             </a>
           </div>
         </section>

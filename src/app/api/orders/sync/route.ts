@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase-admin";
 import { syncOrders } from "@/lib/order-sync";
+import { localize, readApiLanguage } from "@/lib/api-language";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -15,10 +16,14 @@ function getBearerToken(authHeader: string | null): string | null {
 }
 
 export async function POST(request: NextRequest) {
+  const language = readApiLanguage(request);
   const token = getBearerToken(request.headers.get("authorization"));
 
   if (!token) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(language, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   let decodedToken;
@@ -27,7 +32,10 @@ export async function POST(request: NextRequest) {
     decodedToken = await getAdminAuth().verifyIdToken(token);
   } catch (error) {
     console.error("Failed to verify Firebase ID token for order sync:", error);
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(language, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   const body = (await request.json().catch(() => ({}))) as {
@@ -38,7 +46,13 @@ export async function POST(request: NextRequest) {
 
   if (requestedUserId && requestedUserId !== decodedToken.uid) {
     return NextResponse.json(
-      { error: "You can only sync your own orders." },
+      {
+        error: localize(
+          language,
+          "You can only sync your own orders.",
+          "يمكنك مزامنة طلباتك فقط."
+        ),
+      },
       { status: 403 }
     );
   }
@@ -49,7 +63,11 @@ export async function POST(request: NextRequest) {
   if (now - previous < COOLDOWN_MS) {
     return NextResponse.json(
       {
-        error: "Order status was checked moments ago. Try again shortly.",
+        error: localize(
+          language,
+          "Order status was checked moments ago. Try again shortly.",
+          "تم فحص حالة الطلب قبل لحظات. حاول بعد قليل."
+        ),
         retryAfterMs: COOLDOWN_MS - (now - previous),
       },
       {
@@ -75,7 +93,13 @@ export async function POST(request: NextRequest) {
     console.error("Customer order sync failed:", error);
 
     return NextResponse.json(
-      { error: "Order status could not be refreshed." },
+      {
+        error: localize(
+          language,
+          "Order status could not be refreshed.",
+          "تعذّر تحديث حالة الطلب."
+        ),
+      },
       { status: 500, headers: { "Cache-Control": "no-store" } }
     );
   }

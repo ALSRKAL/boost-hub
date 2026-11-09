@@ -3,6 +3,8 @@ import { FieldValue } from "firebase-admin/firestore";
 import { COLLECTIONS } from "@/lib/constants";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import { cancelProviderOrder, ProviderError } from "@/lib/provider";
+import { localize, readApiLanguage } from "@/lib/api-language";
+import { providerMessageForCode } from "@/lib/error-messages";
 
 export const runtime = "nodejs";
 
@@ -11,6 +13,7 @@ const CANCELLABLE_STATUSES = new Set(["pending", "processing", "in_progress"]);
 interface CancelRequestBody {
   orderId?: unknown;
   userId?: unknown;
+  lang?: unknown;
 }
 
 function getBearerToken(authHeader: string | null): string | null {
@@ -20,17 +23,25 @@ function getBearerToken(authHeader: string | null): string | null {
 
 export async function POST(request: NextRequest) {
   let body: CancelRequestBody;
+  const requestLanguage = readApiLanguage(request);
 
   try {
     body = (await request.json()) as CancelRequestBody;
   } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    return NextResponse.json(
+      { error: localize(requestLanguage, "Invalid request body.", "طلب غير صالح.") },
+      { status: 400 }
+    );
   }
 
+  const language = readApiLanguage(request, body.lang);
   const token = getBearerToken(request.headers.get("authorization"));
 
   if (!token) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(language, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   let decodedToken;
@@ -39,7 +50,10 @@ export async function POST(request: NextRequest) {
     decodedToken = await getAdminAuth().verifyIdToken(token);
   } catch (error) {
     console.error("Failed to verify Firebase ID token for cancel:", error);
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(language, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   const orderId = typeof body.orderId === "string" ? body.orderId.trim() : "";
@@ -47,14 +61,20 @@ export async function POST(request: NextRequest) {
 
   if (!orderId || !userId) {
     return NextResponse.json(
-      { error: "Order and account are required." },
+      { error: localize(language, "Order and account are required.", "الطلب والحساب مطلوبان.") },
       { status: 400 }
     );
   }
 
   if (decodedToken.uid !== userId) {
     return NextResponse.json(
-      { error: "You can only cancel your own orders." },
+      {
+        error: localize(
+          language,
+          "You can only cancel your own orders.",
+          "يمكنك إلغاء طلباتك فقط."
+        ),
+      },
       { status: 403 }
     );
   }
@@ -65,25 +85,43 @@ export async function POST(request: NextRequest) {
     const orderSnap = await orderRef.get();
 
     if (!orderSnap.exists) {
-      return NextResponse.json({ error: "Order not found." }, { status: 404 });
+      return NextResponse.json(
+        { error: localize(language, "Order not found.", "لم يتم العثور على الطلب.") },
+        { status: 404 }
+      );
     }
 
     const order = orderSnap.data();
 
     if (!order || order.userId !== userId) {
-      return NextResponse.json({ error: "Order not found." }, { status: 404 });
+      return NextResponse.json(
+        { error: localize(language, "Order not found.", "لم يتم العثور على الطلب.") },
+        { status: 404 }
+      );
     }
 
     if (!order.supportsCancel) {
       return NextResponse.json(
-        { error: "This service does not allow cancellation." },
+        {
+          error: localize(
+            language,
+            "This service does not allow cancellation.",
+            "هذه الخدمة لا تسمح بالإلغاء."
+          ),
+        },
         { status: 400 }
       );
     }
 
     if (!CANCELLABLE_STATUSES.has(String(order.status ?? ""))) {
       return NextResponse.json(
-        { error: "Only pending or in-progress orders can be cancelled." },
+        {
+          error: localize(
+            language,
+            "Only pending or in-progress orders can be cancelled.",
+            "يمكن إلغاء الطلبات قيد الانتظار أو قيد التنفيذ فقط."
+          ),
+        },
         { status: 400 }
       );
     }
@@ -93,7 +131,13 @@ export async function POST(request: NextRequest) {
       order.providerOrderId.trim().length === 0
     ) {
       return NextResponse.json(
-        { error: "This order has no provider reference yet. Try again shortly." },
+        {
+          error: localize(
+            language,
+            "This order has no provider reference yet. Try again shortly.",
+            "لا يوجد مرجع مزود لهذا الطلب بعد. حاول بعد قليل."
+          ),
+        },
         { status: 400 }
       );
     }
@@ -141,8 +185,11 @@ export async function POST(request: NextRequest) {
           {
             success: false,
             pendingConfirmation: true,
-            message:
+            message: localize(
+              language,
               "The provider did not confirm the cancellation. Do not retry; support will verify it.",
+              "لم يؤكد المزود الإلغاء. لا تعِد المحاولة؛ سيتحقق الدعم منه."
+            ),
           },
           { status: 202 }
         );
@@ -159,7 +206,16 @@ export async function POST(request: NextRequest) {
         });
 
       return NextResponse.json(
-        { error: classified.customerMessage, code: classified.code },
+        {
+          error:
+            providerMessageForCode(classified.code, language) ??
+            localize(
+              language,
+              classified.customerMessage,
+              "تعذّر إلغاء الطلب. حاول مرة أخرى."
+            ),
+          code: classified.code,
+        },
         { status: 400 }
       );
     }
@@ -177,12 +233,22 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      note: "Cancellation requested. The refund is credited after the provider confirms.",
+      note: localize(
+        language,
+        "Cancellation requested. The refund is credited after the provider confirms.",
+        "تم طلب الإلغاء. يُضاف المبلغ المسترد بعد تأكيد المزود."
+      ),
     });
   } catch (error) {
     console.error("Failed to cancel order:", error);
     return NextResponse.json(
-      { error: "Unable to cancel the order right now." },
+      {
+        error: localize(
+          language,
+          "Unable to cancel the order right now.",
+          "تعذّر إلغاء الطلب حاليًا. حاول مرة أخرى."
+        ),
+      },
       { status: 500 }
     );
   }

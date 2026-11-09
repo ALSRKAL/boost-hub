@@ -195,6 +195,7 @@ export default function Sidebar({
   onToggleCollapsed: () => void;
 }) {
   const pathname = usePathname();
+  const { t } = useLanguage();
 
   useEffect(() => {
     if (mobileOpen) onMobileClose();
@@ -237,7 +238,7 @@ export default function Sidebar({
           type="button"
           className="fixed inset-0 z-50 bg-ink/30 lg:hidden"
           onClick={onMobileClose}
-          aria-label="Close navigation"
+          aria-label={t("Close navigation", "إغلاق التنقل")}
           tabIndex={-1}
         />
       ) : null}

@@ -4,28 +4,41 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Icon from "@/components/ui/Icon";
 import { Notice } from "@/components/ui/Primitives";
 
-function mapRegisterError(message: string): string {
+function mapRegisterError(message: string, language: "en" | "ar"): string {
+  const ar = language === "ar";
+
   if (message.includes("email-already-in-use")) {
-    return "An account already exists with this email. Sign in instead.";
+    return ar
+      ? "يوجد حساب بهذا البريد الإلكتروني بالفعل. سجّل الدخول بدلًا من ذلك."
+      : "An account already exists with this email. Sign in instead.";
   }
   if (message.includes("weak-password")) {
-    return "Password must be at least 6 characters.";
+    return ar
+      ? "يجب أن تكون كلمة المرور 6 أحرف على الأقل."
+      : "Password must be at least 6 characters.";
   }
   if (message.includes("invalid-email")) {
-    return "Enter a valid email address.";
+    return ar ? "أدخل بريدًا إلكترونيًا صالحًا." : "Enter a valid email address.";
   }
   if (message.includes("network-request-failed")) {
-    return "Network unavailable. Check your connection and retry.";
+    return ar
+      ? "الشبكة غير متاحة. تحقق من اتصالك وحاول مرة أخرى."
+      : "Network unavailable. Check your connection and retry.";
   }
   if (message.includes("too-many-requests")) {
-    return "Too many attempts. Wait a minute and try again.";
+    return ar
+      ? "محاولات كثيرة جدًا. انتظر دقيقة ثم حاول مرة أخرى."
+      : "Too many attempts. Wait a minute and try again.";
   }
-  return "Could not create the account. Please try again.";
+  return ar
+    ? "تعذّر إنشاء الحساب. حاول مرة أخرى."
+    : "Could not create the account. Please try again.";
 }
 
 function GoogleMark() {
@@ -56,6 +69,7 @@ const CONFIRM_PASSWORD_FIELD = "confirmPassword" as const;
 
 export default function RegisterPage() {
   const { signUp, signInWithGoogle } = useAuth();
+  const { language, t } = useLanguage();
   const router = useRouter();
 
   const [email, setEmail] = useState("");
@@ -78,17 +92,23 @@ export default function RegisterPage() {
     const nextErrors: typeof fieldErrors = {};
 
     if (!trimmedEmail) {
-      nextErrors.email = "Email is required.";
+      nextErrors.email = t("Email is required.", "البريد الإلكتروني مطلوب.");
     } else if (!/^\S+@\S+\.\S+$/.test(trimmedEmail)) {
-      nextErrors.email = "Enter a valid email address.";
+      nextErrors.email = t("Enter a valid email address.", "أدخل بريدًا إلكترونيًا صالحًا.");
     }
 
     if (password.length < 6) {
-      nextErrors[PASSWORD_FIELD] = "Use at least 6 characters.";
+      nextErrors[PASSWORD_FIELD] = t(
+        "Use at least 6 characters.",
+        "استخدم 6 أحرف على الأقل."
+      );
     }
 
     if (confirmPassword !== password) {
-      nextErrors[CONFIRM_PASSWORD_FIELD] = "Passwords do not match.";
+      nextErrors[CONFIRM_PASSWORD_FIELD] = t(
+        "Passwords do not match.",
+        "كلمتا المرور غير متطابقتين."
+      );
     }
 
     setFieldErrors(nextErrors);
@@ -101,7 +121,7 @@ export default function RegisterPage() {
       await signUp(trimmedEmail, password);
       router.replace("/dashboard");
     } catch (err: unknown) {
-      setError(mapRegisterError(err instanceof Error ? err.message : ""));
+      setError(mapRegisterError(err instanceof Error ? err.message : "", language));
     } finally {
       setLoading(false);
     }
@@ -118,7 +138,7 @@ export default function RegisterPage() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "";
       if (!message.includes("popup-closed")) {
-        setError(mapRegisterError(message));
+        setError(mapRegisterError(message, language));
       }
     } finally {
       setLoading(false);
@@ -128,12 +148,15 @@ export default function RegisterPage() {
   return (
     <div>
       <div className="mb-6">
-        <p className="rule-label">Account</p>
+        <p className="rule-label">{t("Account", "الحساب")}</p>
         <h1 className="mt-1.5 text-[24px] font-semibold tracking-[-0.02em] text-ink">
-          Create account
+          {t("Create account", "إنشاء حساب")}
         </h1>
         <p className="mt-1 text-[12.5px] leading-5 text-ink-mute">
-          Your balance starts at zero. Add funds after signing in.
+          {t(
+            "Your balance starts at zero. Add funds after signing in.",
+            "يبدأ رصيدك من الصفر. أضف رصيدًا بعد تسجيل الدخول."
+          )}
         </p>
       </div>
 
@@ -150,20 +173,20 @@ export default function RegisterPage() {
         disabled={loading}
         leadingIcon={<GoogleMark />}
       >
-        Continue with Google
+        {t("Continue with Google", "المتابعة باستخدام جوجل")}
       </Button>
 
       <div className="my-5 flex items-center gap-3">
         <span className="h-px flex-1 bg-line" />
         <span className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-mute">
-          or use email
+          {t("or use email", "أو استخدم البريد الإلكتروني")}
         </span>
         <span className="h-px flex-1 bg-line" />
       </div>
 
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         <Input
-          label="Email"
+          label={t("Email", "البريد الإلكتروني")}
           type="email"
           placeholder="you@example.com"
           value={email}
@@ -180,9 +203,9 @@ export default function RegisterPage() {
         />
 
         <Input
-          label="Password"
+          label={t("Password", "كلمة المرور")}
           type={showPassword ? "text" : "password"}
-          placeholder="At least 6 characters"
+          placeholder={t("At least 6 characters", "6 أحرف على الأقل")}
           value={password}
           onChange={(event) => {
             setPassword(event.target.value);
@@ -197,7 +220,11 @@ export default function RegisterPage() {
             <button
               type="button"
               onClick={() => setShowPassword((visible) => !visible)}
-              aria-label={showPassword ? "Hide password" : "Show password"}
+              aria-label={
+                showPassword
+                  ? t("Hide password", "إخفاء كلمة المرور")
+                  : t("Show password", "إظهار كلمة المرور")
+              }
               aria-pressed={showPassword}
               className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-ink-mute hover:bg-sunken hover:text-ink"
             >
@@ -207,9 +234,9 @@ export default function RegisterPage() {
         />
 
         <Input
-          label="Confirm password"
+          label={t("Confirm password", "تأكيد كلمة المرور")}
           type={showPassword ? "text" : "password"}
-          placeholder="Repeat your password"
+          placeholder={t("Repeat your password", "أعد كتابة كلمة المرور")}
           value={confirmPassword}
           onChange={(event) => {
             setConfirmPassword(event.target.value);
@@ -223,14 +250,14 @@ export default function RegisterPage() {
         />
 
         <Button type="submit" fullWidth size="lg" isLoading={loading}>
-          Create account
+          {t("Create account", "إنشاء حساب")}
         </Button>
       </form>
 
       <p className="mt-5 text-[12.5px] text-ink-mute">
-        Already have an account?{" "}
+        {t("Already have an account?", "لديك حساب بالفعل؟")}{" "}
         <Link href="/login" className="font-medium text-accent hover:underline">
-          Sign in
+          {t("Sign in", "تسجيل الدخول")}
         </Link>
       </p>
     </div>

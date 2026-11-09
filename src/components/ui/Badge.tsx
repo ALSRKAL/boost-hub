@@ -21,6 +21,19 @@ const STATUS_TONES: Record<string, StatusTone> = {
   requested: "info",
   admin: "info",
   user: "neutral",
+  waiting: "warning",
+  queued: "warning",
+  "on hold": "warning",
+  "on-hold": "warning",
+  hold: "warning",
+  active: "positive",
+  inactive: "neutral",
+  unknown: "neutral",
+  cancel_unknown: "warning",
+  partially_refunded: "warning",
+  refunded_to_user: "positive",
+  awaiting_provider_refund: "warning",
+  none: "neutral",
 };
 
 const STATUS_LABELS: Record<string, string> = {
@@ -44,6 +57,19 @@ const STATUS_LABELS_AR: Record<string, string> = {
   requested: "مطلوب",
   admin: "مدير",
   user: "عميل",
+  waiting: "بالانتظار",
+  queued: "في القائمة",
+  "on hold": "معلّق",
+  "on-hold": "معلّق",
+  hold: "معلّق",
+  active: "نشط",
+  inactive: "غير نشط",
+  unknown: "غير معروف",
+  cancel_unknown: "حالة إلغاء غير مؤكدة",
+  partially_refunded: "مسترد جزئيًا",
+  refunded_to_user: "مسترد للعميل",
+  awaiting_provider_refund: "بانتظار استرداد المزود",
+  none: "بلا",
 };
 
 export function statusTone(status: string): StatusTone {
@@ -57,7 +83,11 @@ export function statusLabel(
   const normalized = status.toLowerCase();
 
   if (language === "ar") {
-    return STATUS_LABELS_AR[normalized] ?? STATUS_LABELS[normalized] ?? status;
+    return (
+      STATUS_LABELS_AR[normalized] ??
+      STATUS_LABELS[normalized] ??
+      "غير معروف"
+    );
   }
 
   if (STATUS_LABELS[normalized]) return STATUS_LABELS[normalized];

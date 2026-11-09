@@ -2,16 +2,20 @@
 
 import { useEffect, useRef, useState } from "react";
 import Icon from "@/components/ui/Icon";
+import { useLanguage } from "@/context/LanguageContext";
 
 export default function CopyButton({
   value,
-  label = "Copy",
-  copiedLabel = "Copied",
+  label,
+  copiedLabel,
 }: {
   value: string;
   label?: string;
   copiedLabel?: string;
 }) {
+  const { t } = useLanguage();
+  const resolvedLabel = label ?? t("Copy", "نسخ");
+  const resolvedCopiedLabel = copiedLabel ?? t("Copied", "تم النسخ");
   const [copied, setCopied] = useState(false);
   const timerRef = useRef<number | null>(null);
 
@@ -46,10 +50,10 @@ export default function CopyButton({
       type="button"
       onClick={handleCopy}
       className="btn btn-secondary btn-sm"
-      aria-label={copied ? copiedLabel : label}
+      aria-label={copied ? resolvedCopiedLabel : resolvedLabel}
     >
       <Icon name={copied ? "check" : "copy"} size={12} />
-      <span>{copied ? copiedLabel : label}</span>
+      <span>{copied ? resolvedCopiedLabel : resolvedLabel}</span>
     </button>
   );
 }

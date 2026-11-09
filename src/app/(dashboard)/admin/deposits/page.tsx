@@ -8,6 +8,7 @@ import {
   useState,
 } from "react";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import AdminGuard from "@/components/admin/AdminGuard";
 import Toast, { useToast } from "@/components/ui/Toast";
 import Button from "@/components/ui/Button";
@@ -36,6 +37,11 @@ import {
   type DepositDoc,
   type OrderSyncMetricDoc,
 } from "@/lib/db";
+import {
+  localizeStoredNote,
+  localizeSyncSource,
+  translateErrorMessage,
+} from "@/lib/error-messages";
 
 type AdminTab = "pending" | "history";
 
@@ -43,13 +49,6 @@ type PendingAction = {
   kind: "approve" | "reject";
   deposit: DepositDoc;
 };
-
-function formatSyncSource(source?: OrderSyncMetricDoc["lastRunSource"]): string {
-  if (source === "cron") return "Scheduled";
-  if (source === "sync_secret") return "Secret trigger";
-  if (source === "admin") return "Manual";
-  return "—";
-}
 
 export default function AdminDepositsPage() {
   return (
@@ -61,6 +60,7 @@ export default function AdminDepositsPage() {
 
 function DepositsContent() {
   const { user, userProfile } = useAuth();
+  const { language, t } = useLanguage();
   const { toasts, addToast, removeToast } = useToast();
 
   const [deposits, setDeposits] = useState<DepositDoc[]>([]);
@@ -138,21 +138,35 @@ function DepositsContent() {
       if (kind === "approve") {
         await approveDeposit(deposit, userProfile.uid);
         addToast(
-          `${formatCurrency(deposit.amount)} credited to ${deposit.userEmail}.`,
+          t(
+            `${formatCurrency(deposit.amount)} credited to ${deposit.userEmail}.`,
+            `تم إضافة ${formatCurrency(deposit.amount)} إلى ${deposit.userEmail}.`
+          ),
           "success"
         );
       } else {
         await rejectDeposit(deposit.id, userProfile.uid, "Rejected by admin");
-        addToast(`Deposit from ${deposit.userEmail} rejected.`, "info");
+        addToast(
+          t(
+            `Deposit from ${deposit.userEmail} rejected.`,
+            `تم رفض إيداع ${deposit.userEmail}.`
+          ),
+          "info"
+        );
       }
 
       setPendingAction(null);
     } catch (error) {
       console.error(`Failed to ${kind} deposit:`, error);
       addToast(
-        error instanceof Error
-          ? error.message
-          : `The deposit could not be ${kind === "approve" ? "approved" : "rejected"}.`,
+        translateErrorMessage(
+          error instanceof Error
+            ? error.message
+            : `The deposit could not be ${
+                kind === "approve" ? "approved" : "rejected"
+              }.`,
+          language
+        ),
         "error"
       );
     } finally {
@@ -190,21 +204,42 @@ function DepositsContent() {
 
       if (summary) {
         const errors = Number(summary.errors ?? 0);
-        const message = `Checked ${formatNumber(
-          Number(summary.checked ?? 0)
-        )}, updated ${formatNumber(Number(summary.updated ?? 0))}, refunded ${formatNumber(
-          Number(summary.refunded ?? 0)
-        )}, awaiting ${formatNumber(Number(summary.awaitingProviderRefund ?? 0))}${
-          errors > 0 ? `, ${formatNumber(errors)} failed` : ""
-        }.`;
+        const message =
+          language === "ar"
+            ? `تم فحص ${formatNumber(
+                Number(summary.checked ?? 0)
+              )} وتحديث ${formatNumber(
+                Number(summary.updated ?? 0)
+              )} واسترداد ${formatNumber(
+                Number(summary.refunded ?? 0)
+              )}، و${formatNumber(
+                Number(summary.awaitingProviderRefund ?? 0)
+              )} بانتظار الاسترداد${
+                errors > 0 ? `، وفشل ${formatNumber(errors)}` : ""
+              }.`
+            : `Checked ${formatNumber(
+                Number(summary.checked ?? 0)
+              )}, updated ${formatNumber(
+                Number(summary.updated ?? 0)
+              )}, refunded ${formatNumber(
+                Number(summary.refunded ?? 0)
+              )}, awaiting ${formatNumber(
+                Number(summary.awaitingProviderRefund ?? 0)
+              )}${errors > 0 ? `, ${formatNumber(errors)} failed` : ""}.`;
         addToast(message, errors > 0 ? "error" : "success");
       } else {
-        addToast("Provider sync complete.", "success");
+        addToast(
+          t("Provider sync complete.", "اكتملت مزامنة المزود."),
+          "success"
+        );
       }
     } catch (error) {
       console.error("Failed to sync orders:", error);
       addToast(
-        error instanceof Error ? error.message : "The provider sync failed.",
+        translateErrorMessage(
+          error instanceof Error ? error.message : "The provider sync failed.",
+          language
+        ),
         "error"
       );
     } finally {
@@ -217,9 +252,12 @@ function DepositsContent() {
       <Toast toasts={toasts} onRemove={removeToast} />
 
       <PageHeader
-        eyebrow="Administration"
-        title="Deposits"
-        description="Verify UPI references before crediting a balance. Approval and credit happen in one transaction."
+        eyebrow={t("Administration", "الإدارة")}
+        title={t("Deposits", "الإيداعات")}
+        description={t(
+          "Verify UPI references before crediting a balance. Approval and credit happen in one transaction.",
+          "تحقق من مراجع UPI قبل إضافة الرصيد. تتم الموافقة وإضافة الرصيد في معاملة واحدة."
+        )}
         actions={
           <Button
             variant="secondary"
@@ -228,63 +266,91 @@ function DepositsContent() {
             onClick={handleSync}
             leadingIcon={<Icon name="refresh" size={13} />}
           >
-            Sync orders
+            {t("Sync orders", "مزامنة الطلبات")}
           </Button>
         }
       />
 
       <section className="grid grid-cols-2 gap-3 xl:grid-cols-4">
         <Stat
-          label="Pending approvals"
+          label={t("Pending approvals", "موافقات معلقة")}
           value={formatNumber(pendingDeposits.length)}
           tone={pendingDeposits.length > 0 ? "warning" : "default"}
         />
         <Stat
-          label="Pending value"
+          label={t("Pending value", "قيمة المعلّق")}
           value={formatCurrency(
             sumMoney(pendingDeposits.map((deposit) => Number(deposit.amount ?? 0)))
           )}
         />
         <Stat
-          label="Last sync"
-          value={metrics?.lastRunAt ? timestampToDate(metrics.lastRunAt) : "Never"}
-          note={metrics?.lastRunStatus === "failed" ? "Latest run failed" : formatSyncSource(metrics?.lastRunSource)}
+          label={t("Last sync", "آخر مزامنة")}
+          value={
+            metrics?.lastRunAt
+              ? timestampToDate(metrics.lastRunAt)
+              : t("Never", "لم يتم")
+          }
+          note={
+            metrics?.lastRunStatus === "failed"
+              ? t("Latest run failed", "فشل آخر تشغيل")
+              : localizeSyncSource(metrics?.lastRunSource, language)
+          }
           tone={metrics?.lastRunStatus === "failed" ? "danger" : "default"}
         />
         <Stat
-          label="Awaiting refund"
+          label={t("Awaiting refund", "بانتظار الاسترداد")}
           value={formatNumber(metrics?.awaitingProviderRefund ?? 0)}
-          note={`Refunded last run: ${formatNumber(metrics?.refunded ?? 0)}`}
+          note={t(
+            `Refunded last run: ${formatNumber(metrics?.refunded ?? 0)}`,
+            `المسترد في آخر تشغيل: ${formatNumber(metrics?.refunded ?? 0)}`
+          )}
           tone={(metrics?.awaitingProviderRefund ?? 0) > 0 ? "warning" : "default"}
         />
       </section>
 
       {metrics?.lastError ? (
-        <Notice tone="danger">Latest sync error: {metrics.lastError}</Notice>
+        <Notice tone="danger">
+          {t("Latest sync error:", "آخر خطأ في المزامنة:")}{" "}
+          {translateErrorMessage(metrics.lastError, language)}
+        </Notice>
       ) : null}
 
       <section className="space-y-3">
         <SectionHeader
-          title="Queue"
-          description="Approve only after the transaction reference is verified in the bank or UPI app."
+          title={t("Queue", "القائمة")}
+          description={t(
+            "Approve only after the transaction reference is verified in the bank or UPI app.",
+            "وافق فقط بعد التحقق من مرجع العملية في البنك أو تطبيق UPI."
+          )}
         />
 
         <div className="space-y-3">
           <SearchInput
-            label="Search deposits"
+            label={t("Search deposits", "بحث في الإيداعات")}
             value={search}
             onChange={setSearch}
-            placeholder="Search by email, UTR, amount, status, or note"
+            placeholder={t(
+              "Search by email, UTR, amount, status, or note",
+              "ابحث بالبريد أو UTR أو المبلغ أو الحالة أو الملاحظة"
+            )}
           />
           <div className="panel px-2 pt-1">
             <Tabs
               items={[
-                { key: "pending", label: "Pending", count: pendingDeposits.length },
-                { key: "history", label: "History", count: historyDeposits.length },
+                {
+                  key: "pending",
+                  label: t("Pending", "قيد الانتظار"),
+                  count: pendingDeposits.length,
+                },
+                {
+                  key: "history",
+                  label: t("History", "السجل"),
+                  count: historyDeposits.length,
+                },
               ]}
               value={tab}
               onChange={setTab}
-              label="Deposit queue"
+              label={t("Deposit queue", "قائمة الإيداعات")}
             />
           </div>
         </div>
@@ -293,8 +359,8 @@ function DepositsContent() {
           <SkeletonRows rows={5} />
         ) : loadError ? (
           <ErrorState
-            title="Deposit queue unavailable"
-            message={loadError}
+            title={t("Deposit queue unavailable", "قائمة الإيداعات غير متاحة")}
+            message={translateErrorMessage(loadError, language)}
             onRetry={() => {
               setLoading(true);
               setLoadError(null);
@@ -306,17 +372,23 @@ function DepositsContent() {
             icon={tab === "pending" ? "check" : "bank"}
             title={
               query
-                ? "No deposits match"
+                ? t("No deposits match", "لا توجد إيداعات مطابقة")
                 : tab === "pending"
-                  ? "Queue is clear"
-                  : "No history yet"
+                  ? t("Queue is clear", "القائمة فارغة")
+                  : t("No history yet", "لا يوجد سجل بعد")
             }
             description={
               query
-                ? "Try another email, UTR, or amount."
+                ? t("Try another email, UTR, or amount.", "جرّب بريدًا أو UTR أو مبلغًا آخر.")
                 : tab === "pending"
-                  ? "Every submitted deposit has been reviewed."
-                  : "Approved and rejected deposits appear here."
+                  ? t(
+                      "Every submitted deposit has been reviewed.",
+                      "تمت مراجعة كل الإيداعات المرسلة."
+                    )
+                  : t(
+                      "Approved and rejected deposits appear here.",
+                      "تظهر هنا الإيداعات المقبولة والمرفوضة."
+                    )
             }
           />
         ) : (
@@ -325,22 +397,30 @@ function DepositsContent() {
               <table className="data-table min-w-[880px]">
                 <thead>
                   <tr>
-                    <th>Customer</th>
-                    <th className="cell-end">Amount</th>
-                    <th>Reference</th>
-                    <th>Submitted</th>
-                    <th>Status</th>
-                    {tab === "pending" ? <th className="cell-end">Decision</th> : null}
+                    <th>{t("Customer", "العميل")}</th>
+                    <th className="cell-end">{t("Amount", "المبلغ")}</th>
+                    <th>{t("Reference", "المرجع")}</th>
+                    <th>{t("Submitted", "تاريخ الإرسال")}</th>
+                    <th>{t("Status", "الحالة")}</th>
+                    {tab === "pending" ? (
+                      <th className="cell-end">{t("Decision", "القرار")}</th>
+                    ) : null}
                   </tr>
                 </thead>
                 <tbody>
                   {visibleDeposits.map((deposit) => (
                     <tr key={deposit.id}>
                       <td>
-                        <p className="cell-strong max-w-[220px] truncate">
+                        <p
+                          className="cell-strong max-w-[220px] truncate"
+                          data-i18n-ignore
+                        >
                           {deposit.userEmail || deposit.userId}
                         </p>
-                        <p className="mt-0.5 text-[10.5px] text-ink-mute">
+                        <p
+                          className="mt-0.5 text-[10.5px] text-ink-mute"
+                          data-i18n-ignore
+                        >
                           {deposit.userId.slice(0, 12)}
                         </p>
                       </td>
@@ -358,7 +438,7 @@ function DepositsContent() {
                           <StatusBadge status={deposit.status} />
                           {deposit.notes ? (
                             <p className="max-w-[200px] text-[10.5px] text-ink-mute">
-                              {deposit.notes}
+                              {localizeStoredNote(deposit.notes, language)}
                             </p>
                           ) : null}
                         </div>
@@ -373,7 +453,7 @@ function DepositsContent() {
                               }
                               disabled={processingId !== null}
                             >
-                              Approve
+                              {t("Approve", "قبول")}
                             </Button>
                             <Button
                               variant="danger"
@@ -383,7 +463,7 @@ function DepositsContent() {
                               }
                               disabled={processingId !== null}
                             >
-                              Reject
+                              {t("Reject", "رفض")}
                             </Button>
                           </div>
                         </td>
@@ -399,7 +479,10 @@ function DepositsContent() {
                 <article key={deposit.id} className="p-3.5">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <p className="truncate text-[12.5px] font-medium text-ink">
+                      <p
+                        className="truncate text-[12.5px] font-medium text-ink"
+                        data-i18n-ignore
+                      >
                         {deposit.userEmail || deposit.userId}
                       </p>
                       <p className="mt-0.5 text-[10.5px] text-ink-mute">
@@ -426,7 +509,7 @@ function DepositsContent() {
                         onClick={() => setPendingAction({ kind: "approve", deposit })}
                         disabled={processingId !== null}
                       >
-                        Approve
+                        {t("Approve", "قبول")}
                       </Button>
                       <Button
                         variant="danger"
@@ -435,7 +518,7 @@ function DepositsContent() {
                         onClick={() => setPendingAction({ kind: "reject", deposit })}
                         disabled={processingId !== null}
                       >
-                        Reject
+                        {t("Reject", "رفض")}
                       </Button>
                     </div>
                   ) : null}
@@ -449,40 +532,46 @@ function DepositsContent() {
       <ConfirmDialog
         open={pendingAction !== null}
         title={
-          pendingAction?.kind === "approve" ? "Approve this deposit?" : "Reject this deposit?"
+          pendingAction?.kind === "approve"
+            ? t("Approve this deposit?", "قبول هذا الإيداع؟")
+            : t("Reject this deposit?", "رفض هذا الإيداع؟")
         }
         description={
           pendingAction ? (
             pendingAction.kind === "approve" ? (
               <>
-                Credit{" "}
+                {t("Credit", "إضافة")}{" "}
                 <span className="num-sm font-medium text-ink">
                   {formatCurrency(pendingAction.deposit.amount)}
                 </span>{" "}
-                to{" "}
+                {t("to", "إلى")}{" "}
                 <span className="font-medium text-ink">
                   {pendingAction.deposit.userEmail}
                 </span>
-                . Confirm the UTR{" "}
+                . {t("Confirm the UTR", "تحقق من UTR")}{" "}
                 <span className="num-sm text-ink">{pendingAction.deposit.utr}</span>{" "}
-                against the payment first.
+                {t("against the payment first.", "مقابل الدفعة أولًا.")}
               </>
             ) : (
               <>
-                Reject the{" "}
+                {t("Reject the", "رفض إيداع")}{" "}
                 <span className="num-sm font-medium text-ink">
                   {formatCurrency(pendingAction.deposit.amount)}
                 </span>{" "}
-                deposit from{" "}
+                {t("deposit from", "من")}{" "}
                 <span className="font-medium text-ink">
                   {pendingAction.deposit.userEmail}
                 </span>
-                ? No balance is credited.
+                ? {t("No balance is credited.", "لن يُضاف أي رصيد.")}
               </>
             )
           ) : null
         }
-        confirmLabel={pendingAction?.kind === "approve" ? "Approve and credit" : "Reject"}
+        confirmLabel={
+          pendingAction?.kind === "approve"
+            ? t("Approve and credit", "قبول وإضافة الرصيد")
+            : t("Reject", "رفض")
+        }
         tone={pendingAction?.kind === "reject" ? "danger" : "default"}
         isBusy={processingId !== null}
         onConfirm={confirmAction}

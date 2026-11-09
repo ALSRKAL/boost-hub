@@ -1,6 +1,12 @@
 import type { PlatformKey, PlatformMeta } from "@/lib/service-platforms";
 import { getPlatformMetaForService } from "@/lib/service-platforms";
 import { sortServicesByPriorityAndPrice } from "@/lib/service-ordering";
+import {
+  localizeCategory,
+  localizePlatformLabel,
+  localizeServiceName,
+} from "@/lib/service-localization";
+import type { Language } from "@/lib/i18n";
 
 export interface ServiceItem {
   id: string;
@@ -52,6 +58,31 @@ export function getServicePrice(service: Pick<ServiceItem, "price">): number {
   return Number.isFinite(price) ? price : 0;
 }
 
+export function getServiceDisplayName(
+  service: Pick<ServiceItem, "name">,
+  language: Language
+): string {
+  return language === "ar" ? localizeServiceName(service.name) : service.name;
+}
+
+export function getServiceDisplayCategory(
+  service: Pick<ServiceItem, "category">,
+  language: Language
+): string {
+  return language === "ar"
+    ? localizeCategory(service.category)
+    : service.category;
+}
+
+export function getPlatformDisplayLabel(
+  platform: PlatformMeta,
+  language: Language
+): string {
+  return language === "ar"
+    ? localizePlatformLabel(platform.label)
+    : platform.label;
+}
+
 export function groupServicesByPlatform(services: ServiceItem[]): PlatformGroup[] {
   const groups = new Map<PlatformKey, PlatformGroup>();
 
@@ -83,20 +114,34 @@ export function groupServicesByPlatform(services: ServiceItem[]): PlatformGroup[
     });
 }
 
-export function searchServices(services: ServiceItem[], query: string): ServiceItem[] {
+export function searchServices(
+  services: ServiceItem[],
+  query: string,
+  language: Language = "en"
+): ServiceItem[] {
   const normalized = query.trim().toLowerCase();
 
   if (!normalized) return services;
 
   return services.filter((service) => {
     const platform = getPlatformMetaForService(service).label;
-    return [
+    const fields = [
       service.id,
       service.name,
       service.category,
       service.type,
       platform,
-    ].some((value) => value.toLowerCase().includes(normalized));
+    ];
+
+    if (language === "ar") {
+      fields.push(
+        localizeServiceName(service.name),
+        localizeCategory(service.category),
+        localizePlatformLabel(platform)
+      );
+    }
+
+    return fields.some((value) => value.toLowerCase().includes(normalized));
   });
 }
 

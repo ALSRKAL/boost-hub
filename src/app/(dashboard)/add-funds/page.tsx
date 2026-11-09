@@ -32,6 +32,10 @@ import {
   timestampToDate,
   type DepositDoc,
 } from "@/lib/db";
+import {
+  localizeStoredNote,
+  translateErrorMessage,
+} from "@/lib/error-messages";
 
 const UPI_ID = process.env.NEXT_PUBLIC_UPI_ID ?? "";
 const MIN_DEPOSIT = 10;
@@ -62,7 +66,7 @@ function readErrorMessage(payload: unknown): string | null {
 
 export default function AddFundsPage() {
   const { user, userProfile } = useAuth();
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const { toasts, addToast, removeToast } = useToast();
 
   const [amount, setAmount] = useState("");
@@ -146,26 +150,45 @@ export default function AddFundsPage() {
     let hasError = false;
 
     if (!trimmedAmount) {
-      setAmountError("Enter the amount you transferred.");
+      setAmountError(
+        t("Enter the amount you transferred.", "أدخل المبلغ الذي قمت بتحويله.")
+      );
       hasError = true;
     } else if (!Number.isFinite(parsedAmount)) {
-      setAmountError("Enter a valid amount.");
+      setAmountError(t("Enter a valid amount.", "أدخل مبلغًا صالحًا."));
       hasError = true;
     } else if (parsedAmount < MIN_DEPOSIT) {
-      setAmountError(`Minimum deposit is ${formatCurrency(MIN_DEPOSIT)}.`);
+      setAmountError(
+        t(
+          `Minimum deposit is ${formatCurrency(MIN_DEPOSIT)}.`,
+          `الحد الأدنى للإيداع هو ${formatCurrency(MIN_DEPOSIT)}.`
+        )
+      );
       hasError = true;
     } else if (parsedAmount > MAX_DEPOSIT) {
-      setAmountError(`Maximum deposit is ${formatCurrency(MAX_DEPOSIT)}.`);
+      setAmountError(
+        t(
+          `Maximum deposit is ${formatCurrency(MAX_DEPOSIT)}.`,
+          `الحد الأقصى للإيداع هو ${formatCurrency(MAX_DEPOSIT)}.`
+        )
+      );
       hasError = true;
     } else {
       setAmountError("");
     }
 
     if (!trimmedUtr) {
-      setUtrError("Transaction reference is required.");
+      setUtrError(
+        t("Transaction reference is required.", "مرجع العملية مطلوب.")
+      );
       hasError = true;
     } else if (!UTR_PATTERN.test(trimmedUtr)) {
-      setUtrError("Use 8–40 letters, digits, or hyphens.");
+      setUtrError(
+        t(
+          "Use 8–40 letters, digits, or hyphens.",
+          "استخدم من 8 إلى 40 حرفًا أو رقمًا أو شرطة."
+        )
+      );
       hasError = true;
     } else {
       setUtrError("");
@@ -174,7 +197,13 @@ export default function AddFundsPage() {
     if (hasError) return;
 
     if (!user?.uid) {
-      addToast("Sign in again to submit a deposit.", "error");
+      addToast(
+        t(
+          "Sign in again to submit a deposit.",
+          "سجّل الدخول مرة أخرى لإرسال الإيداع."
+        ),
+        "error"
+      );
       return;
     }
 
@@ -191,6 +220,7 @@ export default function AddFundsPage() {
           userId: user.uid,
           amount: parsedAmount,
           utr: trimmedUtr,
+          lang: language,
         }),
       });
       const payload: unknown = await response.json();
@@ -206,15 +236,21 @@ export default function AddFundsPage() {
       setAmountError("");
       setUtrError("");
       addToast(
-        "Deposit submitted. It is credited after an administrator verifies the payment.",
+        t(
+          "Deposit submitted. It is credited after an administrator verifies the payment.",
+          "تم إرسال الإيداع. يُضاف الرصيد بعد تحقق المدير من الدفع."
+        ),
         "success"
       );
     } catch (error) {
       console.error("Failed to submit deposit:", error);
       addToast(
-        error instanceof Error
-          ? error.message
-          : "The deposit could not be submitted.",
+        translateErrorMessage(
+          error instanceof Error
+            ? error.message
+            : "The deposit could not be submitted.",
+          language
+        ),
         "error"
       );
     } finally {
@@ -267,7 +303,7 @@ export default function AddFundsPage() {
                   src="/payment-qr.png"
                   width={200}
                   height={200}
-                  alt="UPI payment QR code"
+                  alt={t("UPI payment QR code", "رمز QR للدفع عبر UPI")}
                   className="h-auto w-full rounded-[var(--radius-xs)] object-contain"
                   priority
                 />
@@ -465,7 +501,7 @@ export default function AddFundsPage() {
         ) : loadError ? (
           <ErrorState
             title={t("Deposit history unavailable", "سجل الإيداعات غير متاح")}
-            message={loadError}
+            message={translateErrorMessage(loadError, language)}
             onRetry={() => {
               setLoading(true);
               setLoadError(null);
@@ -536,7 +572,7 @@ export default function AddFundsPage() {
                           <StatusBadge status={deposit.status} />
                           {deposit.notes ? (
                             <p className="max-w-[220px] text-[10.5px] text-ink-mute">
-                              {deposit.notes}
+                              {localizeStoredNote(deposit.notes, language)}
                             </p>
                           ) : null}
                         </div>
@@ -570,7 +606,9 @@ export default function AddFundsPage() {
                     {deposit.utr}
                   </p>
                   {deposit.notes ? (
-                    <p className="mt-1 text-[11px] text-ink-mute">{deposit.notes}</p>
+                    <p className="mt-1 text-[11px] text-ink-mute">
+                      {localizeStoredNote(deposit.notes, language)}
+                    </p>
                   ) : null}
                 </div>
               ))}

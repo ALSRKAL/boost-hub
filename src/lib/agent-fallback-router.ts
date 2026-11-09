@@ -5,6 +5,8 @@ import {
 } from "@/lib/agent-tools";
 import type { Language } from "@/lib/i18n";
 import { formatCurrency, formatNumber } from "@/lib/constants";
+import { localizeServiceName } from "@/lib/service-localization";
+import { localizeStatusText } from "@/lib/error-messages";
 
 export interface DeterministicAgentInput {
   messages: Array<{ role: "user" | "assistant"; content: string }>;
@@ -223,8 +225,12 @@ function replyForStatus(
 
   const lines = orders.slice(0, 3).map((order) => {
     const id = str(order.orderId).slice(0, 12);
-    const status = str(order.status);
-    const service = str(order.serviceName);
+    const rawStatus = str(order.status);
+    const status =
+      language === "ar" ? localizeStatusText(rawStatus, language) : rawStatus;
+    const rawService = str(order.serviceName);
+    const service =
+      language === "ar" ? localizeServiceName(rawService) : rawService;
     const charge = num(order.charge);
     return `#${id} · ${service} · ${status} · ${formatCurrency(charge)}`;
   });
@@ -457,7 +463,11 @@ export async function runDeterministicAgent(
       }
 
       const draft = record(preparedData.orderDraft);
-      const serviceName = str(draft.serviceName);
+      const rawServiceName = str(draft.serviceName);
+      const serviceName =
+        language === "ar"
+          ? localizeServiceName(rawServiceName)
+          : rawServiceName;
       const totalCharge = num(draft.totalCharge);
       const walletBalance = num(draft.walletBalance);
       const canPlace = draft.canPlace === true;
@@ -491,20 +501,20 @@ export async function runDeterministicAgent(
     if (services.length > 0) {
       const preview = services
         .slice(0, 3)
-        .map(
-          (service) =>
-            `${str(service.name)} · ${formatCurrency(
-              num(service.customerRatePer1000)
-            )} / 1k`
-        )
+        .map((service) => {
+          const name = str(service.name);
+          return `${language === "ar" ? localizeServiceName(name) : name} · ${formatCurrency(
+            num(service.customerRatePer1000)
+          )} / 1k`;
+        })
         .join("\n");
 
       return {
         reply:
           language === "ar"
-            ? `وجدت ${formatNumber(
-                services.length
-              )} خدمة مطابقة:\n${preview}\nأرسل رابط الهدف أو اسم المستخدم لأجهّز الطلب.`
+            ? `وجدت ${formatNumber(services.length)} ${
+                services.length === 1 ? "خدمة مطابقة" : "خدمات مطابقة"
+              }:\n${preview}\nأرسل رابط الهدف أو اسم المستخدم لأجهّز الطلب.`
             : `I found ${formatNumber(
                 services.length
               )} matching services:\n${preview}\nSend the target link or username and I'll prepare the order.`,

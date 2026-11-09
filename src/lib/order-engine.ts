@@ -20,6 +20,7 @@ import { isCustomCommentsService } from "@/lib/services";
 import { validateServiceLink } from "@/lib/service-guidance";
 import { pick, type Language } from "@/lib/i18n";
 import { calculateCharge, fromMinor, toMinor } from "@/lib/money";
+import { providerMessageForCode } from "@/lib/error-messages";
 
 const REQUEST_ID_PATTERN = /^[A-Za-z0-9_-]{8,64}$/;
 const MAX_LINK_LENGTH = 2048;
@@ -72,10 +73,16 @@ export function isValidTargetLink(link: string): boolean {
   return true;
 }
 
-function normalizeComments(raw: unknown): {
+function normalizeComments(
+  raw: unknown,
+  language: Language = "en"
+): {
   comments: string | null;
   error?: string;
 } {
+  const msg = (en: string, ar: string) =>
+    language === "ar" ? ar : en;
+
   if (typeof raw !== "string" || !raw.trim()) {
     return { comments: null };
   }
@@ -92,14 +99,20 @@ function normalizeComments(raw: unknown): {
   if (lines.length > MAX_COMMENT_LINES) {
     return {
       comments: null,
-      error: `Custom comments are limited to ${MAX_COMMENT_LINES} lines.`,
+      error: msg(
+        `Custom comments are limited to ${MAX_COMMENT_LINES} lines.`,
+        `التعليقات المخصصة محدودة بـ ${MAX_COMMENT_LINES} سطرًا.`
+      ),
     };
   }
 
   if (lines.some((line) => line.length > 500)) {
     return {
       comments: null,
-      error: "Each comment must be 500 characters or fewer.",
+      error: msg(
+        "Each comment must be 500 characters or fewer.",
+        "يجب ألا يزيد كل تعليق عن 500 حرف."
+      ),
     };
   }
 
@@ -119,6 +132,7 @@ export async function placeOrder(
   const requestId = input.requestId.trim();
   const quantity = toPositiveInteger(input.quantity);
   const lang = input.lang === "ar" ? "ar" : "en";
+  const msg = (en: string, ar: string) => (lang === "ar" ? ar : en);
   const runs = input.runs ?? null;
   const interval = input.interval ?? null;
 
@@ -126,7 +140,10 @@ export async function placeOrder(
     return {
       status: 400,
       body: {
-        error: "Service, target link, quantity, and account are required.",
+        error: msg(
+          "Service, target link, quantity, and account are required.",
+          "الخدمة ورابط الهدف والكمية والحساب مطلوبة."
+        ),
       },
     };
   }
@@ -135,7 +152,10 @@ export async function placeOrder(
     return {
       status: 400,
       body: {
-        error: "Invalid request identifier. Refresh the page and try again.",
+        error: msg(
+          "Invalid request identifier. Refresh the page and try again.",
+          "معرّف الطلب غير صالح. حدّث الصفحة وحاول مرة أخرى."
+        ),
       },
     };
   }
@@ -144,8 +164,10 @@ export async function placeOrder(
     return {
       status: 400,
       body: {
-        error:
+        error: msg(
           "Enter a valid target: a full https:// link or a username with no spaces.",
+          "أدخل هدفًا صالحًا: رابط https:// كامل أو اسم مستخدم بدون مسافات."
+        ),
       },
     };
   }
@@ -158,8 +180,10 @@ export async function placeOrder(
       return {
         status: 404,
         body: {
-          error:
+          error: msg(
             "The selected service is no longer available. Refresh the catalog.",
+            "الخدمة المحددة لم تعد متاحة. حدّث الكتالوج."
+          ),
         },
       };
     }
@@ -170,7 +194,10 @@ export async function placeOrder(
       return {
         status: 400,
         body: {
-          error: "The selected service has incomplete provider data.",
+          error: msg(
+            "The selected service has incomplete provider data.",
+            "بيانات الخدمة المحددة غير مكتملة لدى المزود."
+          ),
         },
       };
     }
@@ -213,15 +240,20 @@ export async function placeOrder(
       return {
         status: 400,
         body: {
-          error: `Quantity for this service must be between ${serviceMin.toLocaleString(
-            "en-IN"
-          )} and ${serviceMax.toLocaleString("en-IN")}.`,
+          error: msg(
+            `Quantity for this service must be between ${serviceMin.toLocaleString(
+              "en-IN"
+            )} and ${serviceMax.toLocaleString("en-IN")}.`,
+            `يجب أن تكون الكمية لهذه الخدمة بين ${serviceMin.toLocaleString(
+              "en-IN"
+            )} و${serviceMax.toLocaleString("en-IN")}.`
+          ),
         },
       };
     }
 
     const commentService = isCustomCommentsService(publicService.type);
-    const normalizedComments = normalizeComments(input.comments);
+    const normalizedComments = normalizeComments(input.comments, lang);
 
     if (normalizedComments.error) {
       return { status: 400, body: { error: normalizedComments.error } };
@@ -231,7 +263,10 @@ export async function placeOrder(
       return {
         status: 400,
         body: {
-          error: "This service requires custom comments, one per line.",
+          error: msg(
+            "This service requires custom comments, one per line.",
+            "هذه الخدمة تتطلب تعليقات مخصصة، تعليقًا واحدًا في كل سطر."
+          ),
         },
       };
     }
@@ -243,7 +278,10 @@ export async function placeOrder(
         return {
           status: 400,
           body: {
-            error: `Quantity must equal the number of comment lines (${lineCount}).`,
+            error: msg(
+              `Quantity must equal the number of comment lines (${lineCount}).`,
+              `يجب أن تساوي الكمية عدد أسطر التعليقات (${lineCount}).`
+            ),
           },
         };
       }
@@ -252,7 +290,12 @@ export async function placeOrder(
     if (!commentService && normalizedComments.comments) {
       return {
         status: 400,
-        body: { error: "This service does not accept custom comments." },
+        body: {
+          error: msg(
+            "This service does not accept custom comments.",
+            "هذه الخدمة لا تقبل تعليقات مخصصة."
+          ),
+        },
       };
     }
 
@@ -262,7 +305,12 @@ export async function placeOrder(
       if (!supportsDripfeed) {
         return {
           status: 400,
-          body: { error: "This service does not support drip-feed." },
+          body: {
+            error: msg(
+              "This service does not support drip-feed.",
+              "هذه الخدمة لا تدعم التسليم المرحلي."
+            ),
+          },
         };
       }
 
@@ -270,7 +318,10 @@ export async function placeOrder(
         return {
           status: 400,
           body: {
-            error: "Drip-feed needs at least 2 runs and a positive interval.",
+            error: msg(
+              "Drip-feed needs at least 2 runs and a positive interval.",
+              "التسليم المرحلي يحتاج إلى دفعتين على الأقل وفاصل زمني موجب."
+            ),
           },
         };
       }
@@ -278,7 +329,12 @@ export async function placeOrder(
       if (runs > quantity) {
         return {
           status: 400,
-          body: { error: "Drip-feed runs cannot exceed the quantity." },
+          body: {
+            error: msg(
+              "Drip-feed runs cannot exceed the quantity.",
+              "لا يمكن أن يتجاوز عدد الدفعات الكمية."
+            ),
+          },
         };
       }
 
@@ -286,7 +342,10 @@ export async function placeOrder(
         return {
           status: 400,
           body: {
-            error: "Drip-feed interval cannot exceed 1440 minutes.",
+            error: msg(
+              "Drip-feed interval cannot exceed 1440 minutes.",
+              "لا يمكن أن يتجاوز الفاصل الزمني 1440 دقيقة."
+            ),
           },
         };
       }
@@ -301,7 +360,10 @@ export async function placeOrder(
       return {
         status: 400,
         body: {
-          error: "This service has an invalid price. Contact support.",
+          error: msg(
+            "This service has an invalid price. Contact support.",
+            "سعر هذه الخدمة غير صالح. تواصل مع الدعم."
+          ),
         },
       };
     }
@@ -407,18 +469,33 @@ export async function placeOrder(
       if (code === "INSUFFICIENT_FUNDS") {
         return {
           status: 400,
-          body: { error: "Insufficient balance. Add funds and try again." },
+          body: {
+            error: msg(
+              "Insufficient balance. Add funds and try again.",
+              "رصيد المحفظة غير كافٍ. يرجى شحن الرصيد والمحاولة مرة أخرى."
+            ),
+          },
         };
       }
 
       if (code === "USER_NOT_FOUND") {
-        return { status: 404, body: { error: "User account not found." } };
+        return {
+          status: 404,
+          body: {
+            error: msg("User account not found.", "لم يتم العثور على حساب المستخدم."),
+          },
+        };
       }
 
       if (code === "REQUEST_CONFLICT") {
         return {
           status: 409,
-          body: { error: "This request identifier was already used." },
+          body: {
+            error: msg(
+              "This request identifier was already used.",
+              "تم استخدام معرّف الطلب هذا مسبقًا."
+            ),
+          },
         };
       }
 
@@ -426,7 +503,10 @@ export async function placeOrder(
         return {
           status: 409,
           body: {
-            error: "The previous attempt failed. Submit the order again.",
+            error: msg(
+              "The previous attempt failed. Submit the order again.",
+              "فشلت المحاولة السابقة. أرسل الطلب مرة أخرى."
+            ),
           },
         };
       }
@@ -434,7 +514,12 @@ export async function placeOrder(
       console.error("Order reservation transaction failed:", transactionError);
       return {
         status: 500,
-        body: { error: "Could not reserve the order. Please try again." },
+        body: {
+          error: msg(
+            "Could not reserve the order. Please try again.",
+            "تعذّر حجز الطلب. حاول مرة أخرى."
+          ),
+        },
       };
     }
 
@@ -512,8 +597,10 @@ export async function placeOrder(
             pendingConfirmation: true,
             orderId: orderRef.id,
             code: classified.code,
-            message:
+            message: msg(
               "The provider did not confirm the order. Your wallet is charged and the order is marked for review. Do not resubmit; support will reconcile it.",
+              "لم يؤكد المزود الطلب. تم خصم المبلغ من محفظتك وتمييز الطلب للمراجعة. لا تُعد الإرسال؛ سيتولى الدعم تسويته."
+            ),
           },
         };
       }
@@ -580,10 +667,16 @@ export async function placeOrder(
       return {
         status: 502,
         body: {
-          error: `${classified.customerMessage} ${
+          error: `${
+            providerMessageForCode(classified.code, lang) ??
+            classified.customerMessage
+          } ${
             refunded
-              ? "Your wallet was not charged."
-              : "The automatic refund failed; support will reconcile the charge."
+              ? msg("Your wallet was not charged.", "لم يتم خصم أي مبلغ من محفظتك.")
+              : msg(
+                  "The automatic refund failed; support will reconcile the charge.",
+                  "تعذّر الاسترداد التلقائي؛ سيتولى الدعم تسوية المبلغ."
+                )
           }`,
           code: classified.code,
         },
@@ -634,7 +727,10 @@ export async function placeOrder(
     return {
       status: 500,
       body: {
-        error: "Unable to place the order right now. Please try again.",
+        error: msg(
+          "Unable to place the order right now. Please try again.",
+          "تعذّر إنشاء الطلب حاليًا. حاول مرة أخرى."
+        ),
       },
     };
   }

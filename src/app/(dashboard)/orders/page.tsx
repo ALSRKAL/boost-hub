@@ -29,6 +29,15 @@ import {
 import { formatCurrency, formatDate, formatNumber } from "@/lib/constants";
 import { subscribeUserOrders, type OrderDoc } from "@/lib/db";
 import { formatCountdown, getRefillState } from "@/lib/refill-utils";
+import {
+  getServiceDisplayCategory,
+  getServiceDisplayName,
+} from "@/lib/services";
+import {
+  providerMessageForCode,
+  translateErrorMessage,
+} from "@/lib/error-messages";
+import type { Language } from "@/lib/i18n";
 
 type OrderTab =
   | "all"
@@ -64,10 +73,14 @@ function matchesTab(order: OrderDoc, tab: OrderTab): boolean {
   return order.status === tab;
 }
 
-function matchesSearch(order: OrderDoc, query: string): boolean {
+function matchesSearch(
+  order: OrderDoc,
+  query: string,
+  language: Language
+): boolean {
   if (!query) return true;
 
-  return [
+  const fields = [
     order.id,
     order.providerOrderId,
     order.serviceId,
@@ -77,12 +90,28 @@ function matchesSearch(order: OrderDoc, query: string): boolean {
     order.status,
     order.refundState,
     String(order.quantity),
-  ].some((value) => String(value ?? "").toLowerCase().includes(query));
+  ];
+
+  if (language === "ar") {
+    fields.push(
+      order.serviceName
+        ? getServiceDisplayName({ name: order.serviceName }, language)
+        : "",
+      order.category
+        ? getServiceDisplayCategory({ category: order.category }, language)
+        : ""
+    );
+  }
+
+  return fields.some((value) =>
+    String(value ?? "").toLowerCase().includes(query)
+  );
 }
 
 function refundNote(
   order: OrderDoc,
-  t: (en: string, ar: string) => string
+  t: (en: string, ar: string) => string,
+  language: Language
 ): string | null {
   if (order.needsReconciliation) {
     return t(
@@ -133,8 +162,19 @@ function refundNote(
     return t("Awaiting provider refund", "بانتظار استرداد المزود");
   }
 
-  if (order.cancelErrorMessage) return order.cancelErrorMessage;
-  if (order.refillErrorMessage) return order.refillErrorMessage;
+  if (order.cancelErrorMessage) {
+    return (
+      providerMessageForCode(order.cancelErrorCode, language) ??
+      translateErrorMessage(order.cancelErrorMessage, language)
+    );
+  }
+
+  if (order.refillErrorMessage) {
+    return (
+      providerMessageForCode(order.refillErrorCode, language) ??
+      translateErrorMessage(order.refillErrorMessage, language)
+    );
+  }
 
   return null;
 }
@@ -238,9 +278,9 @@ export default function OrdersPage() {
   const visibleOrders = useMemo(
     () =>
       orders.filter(
-        (order) => matchesTab(order, tab) && matchesSearch(order, query)
+        (order) => matchesTab(order, tab) && matchesSearch(order, query, language)
       ),
-    [orders, tab, query]
+    [orders, tab, query, language]
   );
 
   const handleRefill = useCallback(
@@ -256,12 +296,17 @@ export default function OrdersPage() {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ orderId: order.id, userId: user.uid }),
+          body: JSON.stringify({ orderId: order.id, userId: user.uid, lang: language }),
         });
         const payload: unknown = await response.json();
 
         if (!response.ok) {
-          throw new Error(readErrorMessage(payload) ?? "The refill was rejected.");
+          throw new Error(
+            translateErrorMessage(
+              readErrorMessage(payload) ?? "The refill was rejected.",
+              language
+            )
+          );
         }
 
         const pendingConfirmation =
@@ -298,22 +343,28 @@ export default function OrdersPage() {
           typeof payload.note === "string"
             ? payload.note
             : pendingConfirmation
-              ? responseMessage ?? "Refill confirmation pending."
-              : "Refill requested.";
-        addToast(note, pendingConfirmation ? "info" : "success");
+              ? responseMessage ?? t("Refill confirmation pending.", "بانتظار تأكيد التعويض.")
+              : t("Refill requested.", "تم طلب التعويض.");
+        addToast(
+          translateErrorMessage(note, language),
+          pendingConfirmation ? "info" : "success"
+        );
       } catch (refillError) {
         console.error("Failed to request refill:", refillError);
         addToast(
-          refillError instanceof Error
-            ? refillError.message
-            : "The refill was rejected.",
+          translateErrorMessage(
+            refillError instanceof Error
+              ? refillError.message
+              : "The refill was rejected.",
+            language
+          ),
           "error"
         );
       } finally {
         setRefillingId(null);
       }
     },
-    [user, refillingId, addToast]
+    [user, refillingId, addToast, t, language]
   );
 
   async function handleCancel() {
@@ -330,13 +381,16 @@ export default function OrdersPage() {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ orderId: order.id, userId: user.uid }),
+        body: JSON.stringify({ orderId: order.id, userId: user.uid, lang: language }),
       });
       const payload: unknown = await response.json();
 
       if (!response.ok) {
         throw new Error(
-          readErrorMessage(payload) ?? "The cancellation was rejected."
+          translateErrorMessage(
+            readErrorMessage(payload) ?? "The cancellation was rejected.",
+            language
+          )
         );
       }
 
@@ -375,18 +429,25 @@ export default function OrdersPage() {
       );
 
       addToast(
-        pendingConfirmation
-          ? responseMessage ?? "Cancellation confirmation pending."
-          : "Cancellation requested. The refund is credited after provider confirmation.",
+        translateErrorMessage(
+          pendingConfirmation
+            ? responseMessage ??
+                "Cancellation confirmation pending."
+            : "Cancellation requested. The refund is credited after provider confirmation.",
+          language
+        ),
         "info"
       );
       setCancelTarget(null);
     } catch (cancelError) {
       console.error("Failed to cancel order:", cancelError);
       addToast(
-        cancelError instanceof Error
-          ? cancelError.message
-          : "The cancellation was rejected.",
+        translateErrorMessage(
+          cancelError instanceof Error
+            ? cancelError.message
+            : "The cancellation was rejected.",
+          language
+        ),
         "error"
       );
     } finally {
@@ -447,7 +508,7 @@ export default function OrdersPage() {
       ) : error ? (
         <ErrorState
           title={t("Orders unavailable", "الطلبات غير متاحة")}
-          message={error}
+          message={translateErrorMessage(error, language)}
           onRetry={() => {
             setLoading(true);
             setError(null);
@@ -513,16 +574,34 @@ export default function OrdersPage() {
                       <span className="num-sm text-ink">
                         {order.providerOrderId ?? order.id.slice(0, 10)}
                       </span>
-                      <p className="mt-0.5 text-[10.5px] text-ink-mute">
+                      <p
+                        className="mt-0.5 text-[10.5px] text-ink-mute"
+                        data-i18n-ignore
+                      >
                         {t("Local", "محلي")} {order.id.slice(0, 10)}
                       </p>
                     </td>
                     <td>
                       <p className="cell-strong max-w-[260px] leading-5">
-                        {order.serviceName || `Service ${order.serviceId}`}
+                        {order.serviceName
+                          ? language === "ar"
+                            ? getServiceDisplayName(
+                                { name: order.serviceName },
+                                language
+                              )
+                            : order.serviceName
+                          : t("Service", "خدمة")}{" "}
+                        {order.serviceName ? "" : order.serviceId}
                       </p>
                       <p className="mt-0.5 text-[11.5px] text-ink-mute">
-                        {order.category || t("Uncategorized", "غير مصنف")}
+                        {order.category
+                          ? language === "ar"
+                            ? getServiceDisplayCategory(
+                                { category: order.category },
+                                language
+                              )
+                            : order.category
+                          : t("Uncategorized", "غير مصنف")}
                         {order.runs
                           ? ` · ${order.runs} ${t("runs", "دفعة")}`
                           : ""}
@@ -538,7 +617,7 @@ export default function OrdersPage() {
                         title={order.link}
                       >
                         <span className="truncate">{order.link}</span>
-                        <Icon name="external" size={11} className="shrink-0" />
+                        <Icon name="external" size={11} className="shrink-0 rtl-flip" />
                       </a>
                     </td>
                     <td className="cell-end cell-num">
@@ -553,9 +632,9 @@ export default function OrdersPage() {
                     <td>
                       <div className="space-y-1">
                         <StatusBadge status={order.status} />
-                        {refundNote(order, t) ? (
+                        {refundNote(order, t, language) ? (
                           <p className="text-[10.5px] text-ink-mute">
-                            {refundNote(order, t)}
+                            {refundNote(order, t, language)}
                           </p>
                         ) : null}
                       </div>
@@ -584,10 +663,25 @@ export default function OrdersPage() {
                       {order.providerOrderId ?? order.id.slice(0, 10)}
                     </p>
                     <p className="mt-1 text-[13px] font-medium leading-5 text-ink">
-                      {order.serviceName || `Service ${order.serviceId}`}
+                      {order.serviceName
+                        ? language === "ar"
+                          ? getServiceDisplayName(
+                              { name: order.serviceName },
+                              language
+                            )
+                          : order.serviceName
+                        : t("Service", "خدمة")}{" "}
+                      {order.serviceName ? "" : order.serviceId}
                     </p>
                     <p className="mt-0.5 text-[11px] text-ink-mute">
-                      {order.category || t("Uncategorized", "غير مصنف")}
+                      {order.category
+                        ? language === "ar"
+                          ? getServiceDisplayCategory(
+                              { category: order.category },
+                              language
+                            )
+                          : order.category
+                        : t("Uncategorized", "غير مصنف")}
                     </p>
                   </div>
                   <StatusBadge status={order.status} />
@@ -600,7 +694,7 @@ export default function OrdersPage() {
                   className="mt-2 flex items-center gap-1 text-[12px] text-accent"
                 >
                   <span className="truncate">{order.link}</span>
-                  <Icon name="external" size={11} className="shrink-0" />
+                  <Icon name="external" size={11} className="shrink-0 rtl-flip" />
                 </a>
 
                 <dl className="mt-2.5 grid grid-cols-3 gap-2 border-y border-line py-2 text-[11.5px]">
@@ -624,9 +718,9 @@ export default function OrdersPage() {
                   </div>
                 </dl>
 
-                {refundNote(order, t) ? (
+                {refundNote(order, t, language) ? (
                   <p className="mt-2 text-[11px] text-ink-mute">
-                    {refundNote(order, t)}
+                    {refundNote(order, t, language)}
                   </p>
                 ) : null}
 
@@ -777,7 +871,7 @@ function RowActions({
   fullWidth?: boolean;
 }) {
   const refillState = nowMs > 0 ? getRefillState(order, nowMs) : null;
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const canCancel =
     Boolean(order.supportsCancel) &&
     ACTIVE_STATUSES.has(order.status) &&
@@ -811,7 +905,7 @@ function RowActions({
           {refillState.kind === "cooldown"
             ? t("Next refill ", "التعويض التالي ")
             : t("Refill ", "تعويض ")}
-          {formatCountdown(refillState.availableAtMs - nowMs)}
+          {formatCountdown(refillState.availableAtMs - nowMs, language)}
         </span>
       ) : refillState.kind === "expired" ? (
         <span className="text-[11px] text-ink-mute">

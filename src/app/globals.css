@@ -753,3 +753,35 @@ select.control {
     scroll-behavior: auto !important;
   }
 }
+
+/* ============================================================
+   RTL directional icons
+   ============================================================ */
+
+[dir="rtl"] .rtl-flip {
+  transform: scaleX(-1);
+}
+
+/* ============================================================
+   Mobile touch targets
+   ============================================================ */
+
+@media (max-width: 640px) {
+  .chip {
+    min-height: 40px;
+    padding-block: 0.45rem;
+  }
+
+  .btn-sm {
+    min-height: 40px;
+  }
+
+  .control {
+    min-height: 44px;
+  }
+
+  .tabs [role="tab"],
+  .tabs button {
+    min-height: 40px;
+  }
+}

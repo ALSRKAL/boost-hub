@@ -4,13 +4,14 @@ import { useEffect, useRef } from "react";
 import { createPortal } from "react-dom";
 import Button from "@/components/ui/Button";
 import Icon from "@/components/ui/Icon";
+import { useLanguage } from "@/context/LanguageContext";
 
 export default function ConfirmDialog({
   open,
   title,
   description,
-  confirmLabel = "Confirm",
-  cancelLabel = "Cancel",
+  confirmLabel,
+  cancelLabel,
   tone = "default",
   isBusy = false,
   onConfirm,
@@ -26,8 +27,11 @@ export default function ConfirmDialog({
   onConfirm: () => void;
   onCancel: () => void;
 }) {
+  const { t } = useLanguage();
   const cancelRef = useRef<HTMLButtonElement>(null);
   const previousFocus = useRef<HTMLElement | null>(null);
+  const resolvedConfirmLabel = confirmLabel ?? t("Confirm", "تأكيد");
+  const resolvedCancelLabel = cancelLabel ?? t("Cancel", "إلغاء");
 
   useEffect(() => {
     if (!open) return;
@@ -57,7 +61,7 @@ export default function ConfirmDialog({
       <button
         type="button"
         className="absolute inset-0 cursor-default bg-ink/35"
-        aria-label={cancelLabel}
+        aria-label={resolvedCancelLabel}
         onClick={() => {
           if (!isBusy) onCancel();
         }}
@@ -100,7 +104,7 @@ export default function ConfirmDialog({
             onClick={onCancel}
             disabled={isBusy}
           >
-            {cancelLabel}
+            {resolvedCancelLabel}
           </Button>
           <Button
             variant={tone === "danger" ? "danger-solid" : "primary"}
@@ -108,7 +112,7 @@ export default function ConfirmDialog({
             onClick={onConfirm}
             isLoading={isBusy}
           >
-            {confirmLabel}
+            {resolvedConfirmLabel}
           </Button>
         </div>
       </div>

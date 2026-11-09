@@ -7,6 +7,7 @@ import {
   type ReactNode,
 } from "react";
 import Icon, { type IconName } from "@/components/ui/Icon";
+import { useLanguage } from "@/context/LanguageContext";
 
 export type ToastType = "success" | "error" | "info";
 
@@ -34,6 +35,8 @@ function ToastItem({
   toast: ToastMessage;
   onRemove: (id: string) => void;
 }) {
+  const { t } = useLanguage();
+
   useEffect(() => {
     const timer = window.setTimeout(() => onRemove(toast.id), 6000);
     return () => window.clearTimeout(timer);
@@ -52,7 +55,7 @@ function ToastItem({
         type="button"
         onClick={() => onRemove(toast.id)}
         className="-m-1 shrink-0 rounded p-1 text-ink-mute transition-colors hover:bg-sunken hover:text-ink"
-        aria-label="Dismiss notification"
+        aria-label={t("Dismiss notification", "إغلاق الإشعار")}
       >
         <Icon name="x" size={13} />
       </button>

@@ -11,6 +11,11 @@ import { StatusBadge } from "@/components/ui/Badge";
 import CopyButton from "@/components/ui/CopyButton";
 import { formatCurrency, formatNumber } from "@/lib/constants";
 import type { AgentAction } from "@/lib/agent-tools";
+import {
+  localizePlatformKey,
+  localizeServiceName,
+} from "@/lib/service-localization";
+import { translateErrorMessage } from "@/lib/error-messages";
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object"
@@ -197,7 +202,9 @@ export function AgentDrawer() {
                 <p className="mt-2 text-[10.5px] text-ink-mute">
                   {t("Current form", "النموذج الحالي")}:{" "}
                   <span className="text-ink">
-                    {formContext.serviceName}
+                    {language === "ar"
+                      ? localizeServiceName(formContext.serviceName)
+                      : formContext.serviceName}
                   </span>
                   {formContext.quantity
                     ? ` · ${formatNumber(formContext.quantity)}`
@@ -264,7 +271,7 @@ export function AgentDrawer() {
 
           {error ? (
             <p className="rounded-[var(--radius-xs)] border border-[#eec9c5] bg-danger-soft px-2.5 py-2 text-[11.5px] text-danger" role="alert">
-              {error}
+              {translateErrorMessage(error, language)}
             </p>
           ) : null}
         </div>
@@ -358,7 +365,9 @@ function ActionCard({
         <div className="mt-2 space-y-2">
           {services.slice(0, 6).map((service, index) => {
             const id = str(service.id);
-            const name = str(service.name);
+            const rawName = str(service.name);
+            const name =
+              language === "ar" ? localizeServiceName(rawName) : rawName;
             const price = num(service.customerRatePer1000);
             const estimate = num(service.estimatedTotalCharge);
             const min = num(service.min);
@@ -379,7 +388,11 @@ function ActionCard({
                   {name}
                 </p>
                 <div className="mt-1 flex flex-wrap items-center gap-x-2.5 gap-y-1 text-[10.5px] text-ink-mute">
-                  <span>{str(service.platform)}</span>
+                  <span>
+                    {language === "ar"
+                      ? localizePlatformKey(str(service.platform))
+                      : str(service.platform)}
+                  </span>
                   <span>{targetLabel}</span>
                   <span className="num-sm text-ink">
                     {formatCurrency(price)} / 1k
@@ -423,7 +436,9 @@ function ActionCard({
 
   if (action.type === "prefill_order") {
     const clientRequestId = str(payload.clientRequestId);
-    const serviceName = str(payload.serviceName);
+    const rawServiceName = str(payload.serviceName);
+    const serviceName =
+      language === "ar" ? localizeServiceName(rawServiceName) : rawServiceName;
     const link = str(payload.link);
     const quantity = num(payload.quantity);
     const totalCharge = num(payload.totalCharge);
@@ -568,7 +583,11 @@ function ActionCard({
           {orders.map((order, index) => {
             const orderId = str(order.orderId);
             const status = str(order.status);
-            const serviceName = str(order.serviceName);
+            const rawServiceName = str(order.serviceName);
+            const serviceName =
+              language === "ar"
+                ? localizeServiceName(rawServiceName)
+                : rawServiceName;
             const charge = num(order.charge);
             const quantity = num(order.quantity);
             const refillEligible = order.refillEligible === true;
@@ -635,7 +654,7 @@ function ActionCard({
 
     return (
       <div className="rounded-[var(--radius-sm)] border border-line bg-surface px-3 py-2 text-[11.5px] leading-5 text-ink-soft">
-        {message}
+        {translateErrorMessage(message, language)}
       </div>
     );
   }
@@ -683,7 +702,9 @@ function ActionCard({
           </>
         ) : (
           <p className="mt-1 text-[11.5px] leading-5 text-ink-soft">
-            {message || t("Deposit submitted.", "تم إرسال الإيداع.")}
+            {message
+              ? translateErrorMessage(message, language)
+              : t("Deposit submitted.", "تم إرسال الإيداع.")}
           </p>
         )}
       </div>

@@ -3,6 +3,7 @@
 import type { ReactNode } from "react";
 import Icon, { type IconName } from "@/components/ui/Icon";
 import Button from "@/components/ui/Button";
+import { useLanguage } from "@/context/LanguageContext";
 
 // ============================================================
 // Page header
@@ -132,7 +133,7 @@ export function EmptyState({
 }
 
 export function ErrorState({
-  title = "Something went wrong",
+  title,
   message,
   onRetry,
 }: {
@@ -140,12 +141,15 @@ export function ErrorState({
   message: ReactNode;
   onRetry?: () => void;
 }) {
+  const { t } = useLanguage();
+  const resolvedTitle = title ?? t("Something went wrong", "حدث خطأ ما");
+
   return (
     <div className="panel border-[#e7c3bf] px-6 py-10 text-center">
       <span className="mx-auto flex h-9 w-9 items-center justify-center rounded-[var(--radius-sm)] bg-danger-soft text-danger">
         <Icon name="alert" size={17} />
       </span>
-      <h3 className="mt-3 text-[14px] font-semibold text-ink">{title}</h3>
+      <h3 className="mt-3 text-[14px] font-semibold text-ink">{resolvedTitle}</h3>
       <p className="mx-auto mt-1 max-w-md text-[12.5px] leading-5 text-ink-mute">
         {message}
       </p>
@@ -157,7 +161,7 @@ export function ErrorState({
           onClick={onRetry}
           leadingIcon={<Icon name="refresh" size={13} />}
         >
-          Try again
+          {t("Try again", "حاول مرة أخرى")}
         </Button>
       ) : null}
     </div>

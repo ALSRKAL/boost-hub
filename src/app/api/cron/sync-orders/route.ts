@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { COLLECTIONS, USER_ROLES } from "@/lib/constants";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import { syncOrders, type SyncSource } from "@/lib/order-sync";
+import { localize, readApiLanguage } from "@/lib/api-language";
 
 export const runtime = "nodejs";
 
@@ -57,8 +58,13 @@ function getRequestSource(request: NextRequest): SyncSource {
 }
 
 export async function GET(request: NextRequest) {
+  const language = readApiLanguage(request);
+
   if (!(await isAuthorizedRequest(request))) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(language, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   const requestSource = getRequestSource(request);
@@ -75,7 +81,13 @@ export async function GET(request: NextRequest) {
     console.error("Order sync failed:", error);
 
     return NextResponse.json(
-      { error: "Order sync failed. Check the server logs for the provider error." },
+      {
+        error: localize(
+          language,
+          "Order sync failed. Check the server logs for the provider error.",
+          "فشلت مزامنة الطلبات. راجع سجلات الخادم لخطأ المزود."
+        ),
+      },
       { status: 500 }
     );
   }

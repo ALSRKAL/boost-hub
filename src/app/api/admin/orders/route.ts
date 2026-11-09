@@ -4,6 +4,8 @@ import { COLLECTIONS, USER_ROLES } from "@/lib/constants";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import { fromMinor, roundMoney, toMinor } from "@/lib/money";
 import { calculateRemainingFullRefund } from "@/lib/provider-sync";
+import { localize, readApiLanguage } from "@/lib/api-language";
+import { translateErrorMessage } from "@/lib/error-messages";
 
 export const runtime = "nodejs";
 
@@ -280,11 +282,15 @@ async function dismissReview(orderId: string, adminUid: string) {
 
 export async function POST(request: NextRequest) {
   let body: Record<string, unknown>;
+  const language = readApiLanguage(request);
 
   try {
     body = (await request.json()) as Record<string, unknown>;
   } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    return NextResponse.json(
+      { error: localize(language, "Invalid request body.", "طلب غير صالح.") },
+      { status: 400 }
+    );
   }
 
   try {
@@ -294,14 +300,26 @@ export async function POST(request: NextRequest) {
 
     if (!action) {
       return NextResponse.json(
-        { error: "Unknown resolution action." },
+        {
+          error: localize(
+            language,
+            "Unknown resolution action.",
+            "إجراء معالجة غير معروف."
+          ),
+        },
         { status: 400 }
       );
     }
 
     if (!ORDER_ID_PATTERN.test(orderId)) {
       return NextResponse.json(
-        { error: "A valid order identifier is required." },
+        {
+          error: localize(
+            language,
+            "A valid order identifier is required.",
+            "معرّف طلب صالح مطلوب."
+          ),
+        },
         { status: 400 }
       );
     }
@@ -326,8 +344,11 @@ export async function POST(request: NextRequest) {
       if (!PROVIDER_ORDER_ID_PATTERN.test(providerOrderId)) {
         return NextResponse.json(
           {
-            error:
+            error: localize(
+              language,
               "Enter the provider order id exactly as shown on the provider panel (letters, digits, dash, or underscore).",
+              "أدخل معرف طلب المزود كما يظهر في لوحة المزود (أحرف أو أرقام أو شرطة أو شرطة سفلية)."
+            ),
           },
           { status: 400 }
         );
@@ -353,7 +374,7 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof ResolutionError) {
       return NextResponse.json(
-        { error: error.message },
+        { error: translateErrorMessage(error.message, language) },
         { status: error.status }
       );
     }
@@ -361,7 +382,13 @@ export async function POST(request: NextRequest) {
     console.error("Admin order resolution failed:", error);
 
     return NextResponse.json(
-      { error: "The resolution action failed. Check the server logs." },
+      {
+        error: localize(
+          language,
+          "The resolution action failed. Check the server logs.",
+          "تعذّرت معالجة الطلب. راجع سجلات الخادم."
+        ),
+      },
       { status: 500 }
     );
   }

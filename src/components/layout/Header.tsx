@@ -90,7 +90,7 @@ export default function Header({ onOpenNav }: { onOpenNav: () => void }) {
             <Icon name="menu" size={17} />
           </button>
 
-          <div className="min-w-0">
+          <div className="hidden min-w-0 sm:block">
             <p className="rule-label hidden sm:block">{t("Panel", "لوحة")}</p>
             <p className="truncate text-[13px] font-semibold text-ink">
               {getCurrentLabel(pathname, language)}

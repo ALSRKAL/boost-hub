@@ -45,6 +45,16 @@ import {
   calculateOrderFinancials,
   summariseOrderFinancials,
 } from "@/lib/financials";
+import {
+  getServiceDisplayCategory,
+  getServiceDisplayName,
+} from "@/lib/services";
+import {
+  localizeErrorCode,
+  localizeRefundAnomaly,
+  providerMessageForCode,
+  translateErrorMessage,
+} from "@/lib/error-messages";
 
 type OrderTab = "all" | "attention" | "refunded";
 
@@ -61,23 +71,34 @@ interface ResolutionResponse {
   providerOrderId?: string;
 }
 
-function refundSummary(order: OrderDoc): string {
-  if (order.refundAnomaly) return "Anomaly";
+function refundSummary(
+  order: OrderDoc,
+  t: (en: string, ar: string) => string
+): string {
+  if (order.refundAnomaly) {
+    return t("Anomaly", "حالة شاذة");
+  }
 
   if (order.refundState === "refunded_to_user") {
     return order.refundedAmount !== undefined
-      ? `${formatCurrency(order.refundedAmount)} refunded`
-      : "Refunded";
+      ? t(
+          `${formatCurrency(order.refundedAmount)} refunded`,
+          `تم استرداد ${formatCurrency(order.refundedAmount)}`
+        )
+      : t("Refunded", "مسترد");
   }
 
   if (order.refundState === "partially_refunded") {
     return order.refundedAmount !== undefined
-      ? `${formatCurrency(order.refundedAmount)} partial`
-      : "Partial refund";
+      ? t(
+          `${formatCurrency(order.refundedAmount)} partial`,
+          `استرداد جزئي ${formatCurrency(order.refundedAmount)}`
+        )
+      : t("Partial refund", "استرداد جزئي");
   }
 
   if (order.refundState === "awaiting_provider_refund") {
-    return "Awaiting provider";
+    return t("Awaiting provider", "بانتظار المزود");
   }
 
   return "—";
@@ -130,7 +151,7 @@ export default function AdminOrdersPage() {
 }
 
 function AdminOrdersContent() {
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const { toasts, addToast, removeToast } = useToast();
   const [orders, setOrders] = useState<OrderDoc[]>([]);
   const [loading, setLoading] = useState(true);
@@ -189,7 +210,7 @@ function AdminOrdersContent() {
   const providerBalanceLabel = provider.loading
     ? "…"
     : provider.balance === null
-      ? "Unavailable"
+      ? t("Unavailable", "غير متاح")
       : formatCurrency(provider.balance);
 
   const visibleOrders = useMemo(() => {
@@ -219,9 +240,12 @@ function AdminOrdersContent() {
         order.providerErrorCode,
         order.providerError,
         order.refundAnomaly,
+        language === "ar" && order.serviceName
+          ? getServiceDisplayName({ name: order.serviceName }, language)
+          : "",
       ].some((value) => String(value ?? "").toLowerCase().includes(query))
     );
-  }, [orders, tab, query]);
+  }, [orders, tab, query, language]);
 
   const handleResolved = useCallback(
     (message: string, type: "success" | "info") => {
@@ -261,7 +285,7 @@ function AdminOrdersContent() {
           tone={provider.error ? "danger" : "default"}
           note={
             provider.error
-              ? provider.error
+              ? translateErrorMessage(provider.error, language)
               : t(
                   `Live ${provider.currency} balance`,
                   `الرصيد المباشر ${provider.currency}`
@@ -361,7 +385,7 @@ function AdminOrdersContent() {
       ) : loadError ? (
         <ErrorState
           title={t("Order ledger unavailable", "سجل الطلبات غير متاح")}
-          message={loadError}
+          message={translateErrorMessage(loadError, language)}
           onRetry={() => {
             setLoading(true);
             setLoadError(null);
@@ -420,21 +444,39 @@ function AdminOrdersContent() {
                       <span className="num-sm text-ink">
                         {order.providerOrderId ?? order.id.slice(0, 10)}
                       </span>
-                      <p className="mt-0.5 text-[10.5px] text-ink-mute">
-                        Local {order.id.slice(0, 10)}
+                      <p
+                        className="mt-0.5 text-[10.5px] text-ink-mute"
+                        data-i18n-ignore
+                      >
+                        {t("Local", "محلي")} {order.id.slice(0, 10)}
                       </p>
                     </td>
                     <td>
-                      <p className="max-w-[190px] truncate text-[12px] text-ink">
+                      <p className="max-w-[190px] truncate text-[12px] text-ink" data-i18n-ignore>
                         {order.userEmail || order.userId}
                       </p>
                     </td>
                     <td>
                       <p className="cell-strong max-w-[220px] truncate">
-                        {order.serviceName || `Service ${order.serviceId}`}
+                        {order.serviceName
+                          ? language === "ar"
+                            ? getServiceDisplayName(
+                                { name: order.serviceName },
+                                language
+                              )
+                            : order.serviceName
+                          : t("Service", "خدمة")}{" "}
+                        {order.serviceName ? "" : order.serviceId}
                       </p>
                       <p className="mt-0.5 text-[11px] text-ink-mute">
-                        {order.category || "Uncategorized"}
+                        {order.category
+                          ? language === "ar"
+                            ? getServiceDisplayCategory(
+                                { category: order.category },
+                                language
+                              )
+                            : order.category
+                          : t("Uncategorized", "غير مصنف")}
                       </p>
                     </td>
                     <td className="cell-end cell-num">
@@ -455,7 +497,7 @@ function AdminOrdersContent() {
                         <StatusBadge status={order.status} />
                         {order.needsReconciliation ? (
                           <p className="text-[10.5px] font-medium text-danger">
-                            Under review
+                            {t("Under review", "قيد المراجعة")}
                           </p>
                         ) : null}
                       </div>
@@ -469,7 +511,7 @@ function AdminOrdersContent() {
                               : "text-ink-soft"
                           }`}
                         >
-                          {refundSummary(order)}
+                          {refundSummary(order, t)}
                         </p>
                         {order.refundedToUserAt ? (
                           <p className="text-[10.5px] text-ink-mute">
@@ -483,23 +525,39 @@ function AdminOrdersContent() {
                         <div className="max-w-[280px] space-y-1">
                           {order.providerErrorCode ? (
                             <span className="status status-danger">
-                              {order.providerErrorCode}
+                              {localizeErrorCode(order.providerErrorCode, language)}
                             </span>
                           ) : null}
                           {order.providerError ? (
                             <p
                               className="truncate text-[10.5px] text-danger"
-                              title={order.providerError}
+                              title={translateErrorMessage(
+                                order.providerError,
+                                language
+                              )}
                             >
-                              {order.providerError}
+                              {providerMessageForCode(
+                                order.providerErrorCode,
+                                language
+                              ) ??
+                                translateErrorMessage(
+                                  order.providerError,
+                                  language
+                                )}
                             </p>
                           ) : null}
                           {order.refundAnomaly ? (
                             <p
                               className="truncate text-[10.5px] text-warning"
-                              title={order.refundAnomaly}
+                              title={localizeRefundAnomaly(
+                                order.refundAnomaly,
+                                language
+                              )}
                             >
-                              {order.refundAnomaly}
+                              {localizeRefundAnomaly(
+                                order.refundAnomaly,
+                                language
+                              )}
                             </p>
                           ) : null}
                         </div>
@@ -515,7 +573,7 @@ function AdminOrdersContent() {
                           leadingIcon={<Icon name="shield" size={13} />}
                           onClick={() => setResolving(order)}
                         >
-                          Resolve
+                          {t("Resolve", "معالجة")}
                         </Button>
                       ) : (
                         <span className="text-[11.5px] text-ink-mute">—</span>
@@ -543,9 +601,20 @@ function AdminOrdersContent() {
                       {order.providerOrderId ?? order.id.slice(0, 10)}
                     </p>
                     <p className="mt-1 truncate text-[12.5px] font-medium text-ink">
-                      {order.serviceName || `Service ${order.serviceId}`}
+                      {order.serviceName
+                        ? language === "ar"
+                          ? getServiceDisplayName(
+                              { name: order.serviceName },
+                              language
+                            )
+                          : order.serviceName
+                        : t("Service", "خدمة")}{" "}
+                      {order.serviceName ? "" : order.serviceId}
                     </p>
-                    <p className="mt-0.5 truncate text-[11px] text-ink-mute">
+                    <p
+                      className="mt-0.5 truncate text-[11px] text-ink-mute"
+                      data-i18n-ignore
+                    >
                       {order.userEmail || order.userId}
                     </p>
                   </div>
@@ -554,19 +623,19 @@ function AdminOrdersContent() {
 
                 <div className="mt-2.5 grid grid-cols-3 gap-2 border-y border-line py-2">
                   <div>
-                    <p className="rule-label">Charge</p>
+                    <p className="rule-label">{t("Charge", "المبلغ")}</p>
                     <p className="num-sm mt-1 font-medium text-ink">
                       {formatCurrency(Number(order.charge ?? 0))}
                     </p>
                   </div>
                   <div>
-                    <p className="rule-label">Provider cost</p>
+                    <p className="rule-label">{t("Provider cost", "تكلفة المزود")}</p>
                     <p className="num-sm mt-1 text-ink">
                       {formatCurrency(money.providerCost)}
                     </p>
                   </div>
                   <div>
-                    <p className="rule-label">Net profit</p>
+                    <p className="rule-label">{t("Net profit", "صافي الربح")}</p>
                     <p
                       className={`num-sm mt-1 font-medium ${
                         money.netProfit < 0 ? "text-danger" : "text-positive"
@@ -576,9 +645,9 @@ function AdminOrdersContent() {
                     </p>
                   </div>
                 </div>
-                {refundSummary(order) !== "—" ? (
+                {refundSummary(order, t) !== "—" ? (
                   <p className="mt-1.5 text-[11px] text-ink-mute">
-                    {refundSummary(order)}
+                    {refundSummary(order, t)}
                   </p>
                 ) : null}
 
@@ -586,12 +655,16 @@ function AdminOrdersContent() {
                   <div className="mt-2 space-y-1">
                     {order.providerErrorCode ? (
                       <span className="status status-danger">
-                        {order.providerErrorCode}
+                        {localizeErrorCode(order.providerErrorCode, language)}
                       </span>
                     ) : null}
                     {order.providerError ? (
                       <p className="line-clamp-2 text-[10.5px] text-danger">
-                        {order.providerError}
+                        {providerMessageForCode(
+                          order.providerErrorCode,
+                          language
+                        ) ??
+                          translateErrorMessage(order.providerError, language)}
                       </p>
                     ) : null}
                   </div>
@@ -608,7 +681,7 @@ function AdminOrdersContent() {
                       leadingIcon={<Icon name="shield" size={13} />}
                       onClick={() => setResolving(order)}
                     >
-                      Resolve
+                      {t("Resolve", "معالجة")}
                     </Button>
                   ) : null}
                 </div>
@@ -619,8 +692,14 @@ function AdminOrdersContent() {
 
           {visibleOrders.length > MAX_ROWS ? (
             <p className="border-t border-line bg-subtle px-4 py-2 text-[11px] text-ink-mute">
-              Showing the first {MAX_ROWS} of {formatNumber(visibleOrders.length)}.
-              Narrow the search to inspect the rest.
+              {t(
+                `Showing the first ${MAX_ROWS} of ${formatNumber(
+                  visibleOrders.length
+                )}. Narrow the search to inspect the rest.`,
+                `يتم عرض أول ${MAX_ROWS} من ${formatNumber(
+                  visibleOrders.length
+                )}. ضيّق البحث لعرض الباقي.`
+              )}
             </p>
           ) : null}
         </div>
@@ -654,6 +733,7 @@ function ResolveOrderDialog({
   onClose: () => void;
   onResolved: (message: string, type: "success" | "info") => void;
 }) {
+  const { language, t } = useLanguage();
   const [step, setStep] = useState<ResolutionStep>("menu");
   const [providerOrderId, setProviderOrderId] = useState(
     order.providerOrderId ?? ""
@@ -710,12 +790,23 @@ function ResolveOrderDialog({
 
       if (action === "refund_cancel") {
         if (result.alreadyResolved) {
-          onResolved("This order was already fully refunded.", "info");
+          onResolved(
+            t(
+              "This order was already fully refunded.",
+              "تم استرداد هذا الطلب بالكامل مسبقًا."
+            ),
+            "info"
+          );
         } else {
           onResolved(
-            `Refunded ${formatCurrency(
-              Number(result.refundedAmount ?? refundableAmount)
-            )} and canceled the order.`,
+            t(
+              `Refunded ${formatCurrency(
+                Number(result.refundedAmount ?? refundableAmount)
+              )} and canceled the order.`,
+              `تم استرداد ${formatCurrency(
+                Number(result.refundedAmount ?? refundableAmount)
+              )} وإلغاء الطلب.`
+            ),
             "success"
           );
         }
@@ -724,18 +815,24 @@ function ResolveOrderDialog({
 
       if (action === "attach_provider") {
         onResolved(
-          `Provider order ${providerOrderId.trim()} linked. Sync will track it.`,
+          t(
+            `Provider order ${providerOrderId.trim()} linked. Sync will track it.`,
+            `تم ربط طلب المزود ${providerOrderId.trim()}. ستتابعه المزامنة.`
+          ),
           "success"
         );
         return;
       }
 
-      onResolved("Review flag cleared.", "success");
+      onResolved(t("Review flag cleared.", "تم مسح علامة المراجعة."), "success");
     } catch (actionError) {
       setError(
-        actionError instanceof Error
-          ? actionError.message
-          : "The resolution action failed."
+        translateErrorMessage(
+          actionError instanceof Error
+            ? actionError.message
+            : "The resolution action failed.",
+          language
+        )
       );
       setIsBusy(false);
     }
@@ -746,7 +843,7 @@ function ResolveOrderDialog({
       <button
         type="button"
         className="absolute inset-0 cursor-default bg-ink/35"
-        aria-label="Close resolution dialog"
+        aria-label={t("Close resolution dialog", "إغلاق نافذة المعالجة")}
         onClick={() => {
           if (!isBusy) onClose();
         }}
@@ -761,19 +858,25 @@ function ResolveOrderDialog({
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
-            <p className="rule-label">Order review</p>
+            <p className="rule-label">{t("Order review", "مراجعة الطلب")}</p>
             <h2
               id="resolve-order-title"
               className="mt-1 text-[14px] font-semibold text-ink"
             >
-              Resolve {order.providerOrderId ?? order.id.slice(0, 10)}
+              {t("Resolve", "معالجة")}{" "}
+              {order.providerOrderId ?? order.id.slice(0, 10)}
             </h2>
             <p className="mt-1 text-[12px] leading-5 text-ink-mute">
-              {order.serviceName || `Service ${order.serviceId}`} ·{" "}
+              {order.serviceName
+                ? language === "ar"
+                  ? getServiceDisplayName({ name: order.serviceName }, language)
+                  : order.serviceName
+                : t("Service", "خدمة")}{" "}
+              {order.serviceName ? "" : order.serviceId} ·{" "}
               <span className="num-sm">
                 {formatCurrency(Number(order.charge ?? 0))}
               </span>{" "}
-              charged
+              {t("charged", "تم خصمها")}
             </p>
           </div>
           <Button
@@ -782,7 +885,7 @@ function ResolveOrderDialog({
             size="sm"
             onClick={onClose}
             disabled={isBusy}
-            aria-label="Close"
+            aria-label={t("Close", "إغلاق")}
           >
             <Icon name="x" size={14} />
           </Button>
@@ -799,11 +902,13 @@ function ResolveOrderDialog({
             {order.needsReconciliation && !fullyRefunded ? (
               <div className="rounded-[var(--radius-sm)] border border-line bg-subtle p-3">
                 <p className="text-[12.5px] font-medium text-ink">
-                  Attach provider order
+                  {t("Attach provider order", "ربط طلب المزود")}
                 </p>
                 <p className="mt-0.5 text-[11.5px] leading-5 text-ink-mute">
-                  Use this when the provider accepted the order but the response
-                  was lost. The order returns to sync tracking.
+                  {t(
+                    "Use this when the provider accepted the order but the response was lost. The order returns to sync tracking.",
+                    "استخدم هذا عندما يقبل المزود الطلب لكن تضيع الاستجابة. يعود الطلب إلى متابعة المزامنة."
+                  )}
                 </p>
                 <Button
                   variant="secondary"
@@ -812,7 +917,7 @@ function ResolveOrderDialog({
                   onClick={() => setStep("attach_provider")}
                   disabled={isBusy}
                 >
-                  Attach provider ID
+                  {t("Attach provider ID", "ربط معرف المزود")}
                 </Button>
               </div>
             ) : null}
@@ -820,14 +925,17 @@ function ResolveOrderDialog({
             {!fullyRefunded ? (
               <div className="rounded-[var(--radius-sm)] border border-[#eec9c5] bg-danger-soft/40 p-3">
                 <p className="text-[12.5px] font-medium text-ink">
-                  Refund &amp; mark canceled
+                  {t("Refund & mark canceled", "استرداد وإلغاء الطلب")}
                 </p>
                 <p className="mt-0.5 text-[11.5px] leading-5 text-ink-mute">
-                  Credits{" "}
+                  {t("Credits", "إضافة")}{" "}
                   <span className="num-sm font-medium text-ink">
                     {formatCurrency(refundableAmount)}
                   </span>{" "}
-                  to the customer wallet and closes the order.
+                  {t(
+                    "to the customer wallet and closes the order.",
+                    "إلى محفظة العميل وإغلاق الطلب."
+                  )}
                 </p>
                 <Button
                   variant="danger-solid"
@@ -836,22 +944,28 @@ function ResolveOrderDialog({
                   onClick={() => setStep("confirm_refund")}
                   disabled={isBusy}
                 >
-                  Refund and cancel
+                  {t("Refund and cancel", "استرداد وإلغاء")}
                 </Button>
               </div>
             ) : (
               <Notice tone="positive">
-                This order is already fully refunded. No further credit is due.
+                {t(
+                  "This order is already fully refunded. No further credit is due.",
+                  "تم استرداد هذا الطلب بالكامل. لا يوجد رصيد إضافي مستحق."
+                )}
               </Notice>
             )}
 
             {order.needsReconciliation ? (
               <div className="rounded-[var(--radius-sm)] border border-line bg-subtle p-3">
                 <p className="text-[12.5px] font-medium text-ink">
-                  Dismiss review flag
+                  {t("Dismiss review flag", "مسح علامة المراجعة")}
                 </p>
                 <p className="mt-0.5 text-[11.5px] leading-5 text-ink-mute">
-                  Keep the order as-is and clear the manual review flag.
+                  {t(
+                    "Keep the order as-is and clear the manual review flag.",
+                    "أبقِ الطلب كما هو وامسح علامة المراجعة اليدوية."
+                  )}
                 </p>
                 <Button
                   variant="secondary"
@@ -860,25 +974,32 @@ function ResolveOrderDialog({
                   onClick={() => runAction("dismiss_review")}
                   isLoading={isBusy}
                 >
-                  Dismiss flag
+                  {t("Dismiss flag", "مسح العلامة")}
                 </Button>
               </div>
             ) : null}
 
             <p className="pt-1 text-[11px] leading-5 text-ink-mute">
-              Current refund state: {refundSummary(order)}. Every action is
-              written transactionally and recorded against your admin account.
+              {t("Current refund state:", "حالة الاسترداد الحالية:")}{" "}
+              {refundSummary(order, t)}.{" "}
+              {t(
+                "Every action is written transactionally and recorded against your admin account.",
+                "يُسجّل كل إجراء في معاملة ويُربط بحساب المدير."
+              )}
             </p>
           </div>
         ) : step === "confirm_refund" ? (
           <div className="mt-4">
             <Notice tone="warning">
-              This credits{" "}
+              {t("This credits", "سيتم إضافة")}{" "}
               <span className="num-sm font-medium">
                 {formatCurrency(refundableAmount)}
               </span>{" "}
-              to {order.userEmail || "the customer"} and marks the order canceled.
-              It cannot be undone from this screen.
+              {t("to", "إلى")} {order.userEmail || t("the customer", "العميل")}{" "}
+              {t(
+                "and marks the order canceled. It cannot be undone from this screen.",
+                "وإلغاء الطلب. لا يمكن التراجع من هذه الشاشة."
+              )}
             </Notice>
             <div className="mt-4 flex justify-end gap-2">
               <Button
@@ -887,7 +1008,7 @@ function ResolveOrderDialog({
                 onClick={() => setStep("menu")}
                 disabled={isBusy}
               >
-                Back
+                {t("Back", "رجوع")}
               </Button>
               <Button
                 variant="danger-solid"
@@ -895,7 +1016,7 @@ function ResolveOrderDialog({
                 onClick={() => runAction("refund_cancel")}
                 isLoading={isBusy}
               >
-                Confirm refund
+                {t("Confirm refund", "تأكيد الاسترداد")}
               </Button>
             </div>
           </div>
@@ -903,14 +1024,20 @@ function ResolveOrderDialog({
           <div className="mt-4">
             <Input
               ref={inputRef}
-              label="Provider order ID"
+              label={t("Provider order ID", "معرف طلب المزود")}
               value={providerOrderId}
               onChange={(event) => setProviderOrderId(event.target.value)}
-              placeholder="e.g. 123456789"
-              hint="Copy the order ID from the provider panel. Letters, digits, dash, or underscore."
+              placeholder={t("e.g. 123456789", "مثال: 123456789")}
+              hint={t(
+                "Copy the order ID from the provider panel. Letters, digits, dash, or underscore.",
+                "انسخ معرف الطلب من لوحة المزود. أحرف أو أرقام أو شرطة أو شرطة سفلية."
+              )}
               error={
                 providerOrderId.trim() && !providerIdValid
-                  ? "That is not a valid provider order ID."
+                  ? t(
+                      "That is not a valid provider order ID.",
+                      "معرف طلب المزود غير صالح."
+                    )
                   : undefined
               }
               disabled={isBusy}
@@ -925,7 +1052,7 @@ function ResolveOrderDialog({
                 onClick={() => setStep("menu")}
                 disabled={isBusy}
               >
-                Back
+                {t("Back", "رجوع")}
               </Button>
               <Button
                 variant="primary"
@@ -934,7 +1061,7 @@ function ResolveOrderDialog({
                 isLoading={isBusy}
                 disabled={!providerIdValid}
               >
-                Link and activate
+                {t("Link and activate", "ربط وتفعيل")}
               </Button>
             </div>
           </div>

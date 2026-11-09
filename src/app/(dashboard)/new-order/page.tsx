@@ -27,12 +27,17 @@ import {
 import { formatAverageTimeBilingual } from "@/lib/i18n";
 import { calculateCharge, roundMoney } from "@/lib/money";
 import {
+  getPlatformDisplayLabel,
+  getServiceDisplayCategory,
+  getServiceDisplayName,
   getServicePrice,
   groupServicesByPlatform,
   isCustomCommentsService,
   type ServiceItem,
 } from "@/lib/services";
 import { getServiceSections } from "@/lib/service-ordering";
+import { localizeSectionLabel } from "@/lib/service-localization";
+import { translateErrorMessage } from "@/lib/error-messages";
 import {
   getServiceGuidance,
   validateServiceLink,
@@ -78,23 +83,31 @@ function createRequestId(): string {
 
 function validateTargetLink(
   raw: string,
-  platformKey: PlatformKey | null
+  platformKey: PlatformKey | null,
+  language: "en" | "ar"
 ): string | null {
   const link = raw.trim();
+  const t = (en: string, ar: string) => (language === "ar" ? ar : en);
 
-  if (!link) return "Target link or username is required.";
-  if (/\s/.test(link)) return "Remove spaces from the target.";
-  if (link.length < 3) return "Target is too short.";
-  if (link.length > 2048) return "Target is too long.";
+  if (!link) return t("Target link or username is required.", "رابط الهدف أو اسم المستخدم مطلوب.");
+  if (/\s/.test(link)) return t("Remove spaces from the target.", "أزل المسافات من الهدف.");
+  if (link.length < 3) return t("Target is too short.", "الهدف قصير جدًا.");
+  if (link.length > 2048) return t("Target is too long.", "الهدف طويل جدًا.");
 
   const scheme = link.match(/^([a-z][a-z0-9+.-]*):/i)?.[1]?.toLowerCase();
 
   if (scheme && scheme !== "http" && scheme !== "https") {
-    return "Only http:// and https:// links are accepted.";
+    return t(
+      "Only http:// and https:// links are accepted.",
+      "يُقبل فقط روابط http:// و https://."
+    );
   }
 
   if (platformKey === "website" && scheme !== "http" && scheme !== "https") {
-    return "Traffic services require a full https:// URL.";
+    return t(
+      "Traffic services require a full https:// URL.",
+      "خدمات الزيارات تتطلب رابط https:// كاملًا."
+    );
   }
 
   return null;
@@ -386,12 +399,13 @@ export default function NewOrderPage() {
     const nextErrors: FormErrors = {};
 
     if (!selectedService) {
-      nextErrors.service = "Select a service first.";
+      nextErrors.service = t("Select a service first.", "اختر خدمة أولًا.");
     }
 
     const linkError = validateTargetLink(
       link,
-      platformGroup?.platform.key ?? null
+      platformGroup?.platform.key ?? null,
+      language
     );
     if (linkError) {
       nextErrors.link = linkError;
@@ -400,31 +414,53 @@ export default function NewOrderPage() {
     }
 
     if (!quantity.trim()) {
-      nextErrors.quantity = "Enter a quantity.";
+      nextErrors.quantity = t("Enter a quantity.", "أدخل الكمية.");
     } else if (!Number.isInteger(parsedQuantity) || parsedQuantity <= 0) {
-      nextErrors.quantity = "Use a whole number greater than zero.";
+      nextErrors.quantity = t(
+        "Use a whole number greater than zero.",
+        "استخدم عددًا صحيحًا أكبر من صفر."
+      );
     } else if (
       selectedService &&
       (parsedQuantity < selectedService.min || parsedQuantity > selectedService.max)
     ) {
-      nextErrors.quantity = `Range is ${formatNumber(
-        selectedService.min
-      )}–${formatNumber(selectedService.max)}.`;
+      nextErrors.quantity = t(
+        `Range is ${formatNumber(
+          selectedService.min
+        )}–${formatNumber(selectedService.max)}.`,
+        `النطاق هو ${formatNumber(
+          selectedService.min
+        )}–${formatNumber(selectedService.max)}.`
+      );
     }
 
     if (commentService) {
       if (commentLines === 0) {
-        nextErrors.comments = "Add at least one comment, one per line.";
+        nextErrors.comments = t(
+          "Add at least one comment, one per line.",
+          "أضف تعليقًا واحدًا على الأقل، تعليقًا في كل سطر."
+        );
       } else if (commentLines > MAX_COMMENT_LINES) {
-        nextErrors.comments = `Maximum ${MAX_COMMENT_LINES} comments.`;
+        nextErrors.comments = t(
+          `Maximum ${MAX_COMMENT_LINES} comments.`,
+          `الحد الأقصى ${MAX_COMMENT_LINES} تعليق.`
+        );
       } else if (
         comments.split(/\r?\n/).some((line) => line.trim().length > 500)
       ) {
-        nextErrors.comments = "Each comment must be 500 characters or fewer.";
+        nextErrors.comments = t(
+          "Each comment must be 500 characters or fewer.",
+          "يجب ألا يزيد كل تعليق عن 500 حرف."
+        );
       } else if (commentLines !== parsedQuantity) {
-        nextErrors.quantity = `Quantity must equal the ${formatNumber(
-          commentLines
-        )} comment lines.`;
+        nextErrors.quantity = t(
+          `Quantity must equal the ${formatNumber(
+            commentLines
+          )} comment lines.`,
+          `يجب أن تساوي الكمية عدد أسطر التعليقات (${formatNumber(
+            commentLines
+          )}).`
+        );
       }
     }
 
@@ -433,18 +469,27 @@ export default function NewOrderPage() {
       const parsedInterval = Number(interval);
 
       if (!Number.isInteger(parsedRuns) || parsedRuns < 2) {
-        nextErrors.dripfeed = "Use at least 2 runs.";
+        nextErrors.dripfeed = t(
+          "Use at least 2 runs.",
+          "استخدم دفعتين على الأقل."
+        );
       } else if (
         Number.isInteger(parsedQuantity) &&
         parsedRuns > parsedQuantity
       ) {
-        nextErrors.dripfeed = "Runs cannot exceed the quantity.";
+        nextErrors.dripfeed = t(
+          "Runs cannot exceed the quantity.",
+          "لا يمكن أن يتجاوز عدد الدفعات الكمية."
+        );
       } else if (
         !Number.isInteger(parsedInterval) ||
         parsedInterval < 1 ||
         parsedInterval > 1440
       ) {
-        nextErrors.dripfeed = "Interval must be 1–1440 minutes.";
+        nextErrors.dripfeed = t(
+          "Interval must be 1–1440 minutes.",
+          "يجب أن يكون الفاصل بين 1 و1440 دقيقة."
+        );
       }
     }
 
@@ -461,17 +506,23 @@ export default function NewOrderPage() {
     if (Object.keys(nextErrors).length > 0) return;
 
     if (!user?.uid || !selectedService) {
-      addToast("Sign in again to place this order.", "error");
+      addToast(t("Sign in again to place this order.", "سجّل الدخول مرة أخرى لإنشاء هذا الطلب."), "error");
       return;
     }
 
     if (charge <= 0) {
-      addToast("The charge is zero. Check the quantity.", "error");
+      addToast(t("The charge is zero. Check the quantity.", "المبلغ صفر. تحقق من الكمية."), "error");
       return;
     }
 
     if (insufficient) {
-      addToast("Insufficient balance. Add funds before ordering.", "error");
+      addToast(
+        t(
+          "Insufficient balance. Add funds before ordering.",
+          "الرصيد غير كافٍ. أضف رصيدًا قبل الطلب."
+        ),
+        "error"
+      );
       return;
     }
 
@@ -537,7 +588,10 @@ export default function NewOrderPage() {
         "message" in payload &&
         typeof payload.message === "string"
           ? payload.message
-          : "The provider did not confirm the order. Do not resubmit; support will reconcile it.";
+          : t(
+              "The provider did not confirm the order. Do not resubmit; support will reconcile it.",
+              "لم يؤكد المزود الطلب. لا تُعد الإرسال؛ سيتولى الدعم تسويته."
+            );
       const responseCharge =
         payload &&
         typeof payload === "object" &&
@@ -557,12 +611,21 @@ export default function NewOrderPage() {
       });
 
       if (pendingConfirmation) {
-        addToast(pendingMessage, "info");
+        addToast(translateErrorMessage(pendingMessage, language), "info");
       } else if (duplicate) {
-        addToast("This order request was already processed.", "info");
+        addToast(
+          t(
+            "This order request was already processed.",
+            "تمت معالجة طلب الشراء هذا مسبقًا."
+          ),
+          "info"
+        );
       } else {
         addToast(
-          `Order placed${providerOrderId ? ` · #${providerOrderId}` : ""}. Track it in Orders.`,
+          t(
+            `Order placed${providerOrderId ? ` · #${providerOrderId}` : ""}. Track it in Orders.`,
+            `تم إنشاء الطلب${providerOrderId ? ` · #${providerOrderId}` : ""}. تابعته في الطلبات.`
+          ),
           "success"
         );
       }
@@ -570,7 +633,10 @@ export default function NewOrderPage() {
     } catch (error) {
       console.error("Failed to place order:", error);
       addToast(
-        error instanceof Error ? error.message : "The order was rejected.",
+        translateErrorMessage(
+          error instanceof Error ? error.message : "The order was rejected.",
+          language
+        ),
         "error"
       );
     } finally {
@@ -579,7 +645,7 @@ export default function NewOrderPage() {
   }
 
   return (
-    <div className="space-y-5">
+    <div className="space-y-5 pb-28 xl:pb-0">
       <Toast toasts={toasts} onRemove={removeToast} />
 
       <PageHeader
@@ -625,15 +691,18 @@ export default function NewOrderPage() {
         </div>
       ) : loadError ? (
         <ErrorState
-          title="Catalog unavailable"
-          message={loadError}
+          title={t("Catalog unavailable", "الكتالوج غير متاح")}
+          message={translateErrorMessage(loadError, language)}
           onRetry={() => setReloadKey((value) => value + 1)}
         />
       ) : services.length === 0 ? (
         <EmptyState
           icon="list"
-          title="No services available"
-          description="The provider returned an empty catalog. Try again in a moment."
+          title={t("No services available", "لا توجد خدمات متاحة")}
+          description={t(
+            "The provider returned an empty catalog. Try again in a moment.",
+            "أعاد المزود كتالوجًا فارغًا. حاول بعد قليل."
+          )}
           action={
             <Button
               variant="secondary"
@@ -641,7 +710,7 @@ export default function NewOrderPage() {
               onClick={() => setReloadKey((value) => value + 1)}
               leadingIcon={<Icon name="refresh" size={13} />}
             >
-              Reload catalog
+              {t("Reload catalog", "إعادة تحميل الكتالوج")}
             </Button>
           }
         />
@@ -649,7 +718,12 @@ export default function NewOrderPage() {
         <div className="space-y-5">
           <OrderGuide service={selectedService} />
           <div className="grid min-w-0 items-start gap-5 xl:grid-cols-[minmax(0,1fr)_340px]">
-          <form className="panel min-w-0" onSubmit={handleSubmit} noValidate>
+          <form
+            id="new-order-form"
+            className="panel min-w-0"
+            onSubmit={handleSubmit}
+            noValidate
+          >
             <div className="panel-head">
               <h2 className="text-[13px] font-semibold text-ink">
                 {t("Order details", "تفاصيل الطلب")}
@@ -683,7 +757,7 @@ export default function NewOrderPage() {
                           platform={group.platform.key}
                           className="h-3.5 w-3.5"
                         />
-                        {group.platform.label}
+                        {getPlatformDisplayLabel(group.platform, language)}
                         <span className="chip-count">
                           {formatNumber(group.services.length)}
                         </span>
@@ -707,7 +781,9 @@ export default function NewOrderPage() {
                         aria-pressed={item.key === effectiveSectionKey}
                         onClick={() => handleSectionChange(item.key)}
                       >
-                        {item.label}
+                        {language === "ar"
+                          ? localizeSectionLabel(item.key, item.label)
+                          : item.label}
                         <span className="chip-count">
                           {formatNumber(item.services.length)}
                         </span>
@@ -1139,10 +1215,10 @@ export default function NewOrderPage() {
               {selectedService ? (
                 <div className="mt-4 space-y-2">
                   <p className="text-[12.5px] font-medium leading-5 text-ink">
-                    {selectedService.name}
+                    {getServiceDisplayName(selectedService, language)}
                   </p>
                   <p className="text-[11.5px] text-ink-mute">
-                    {selectedService.category}
+                    {getServiceDisplayCategory(selectedService, language)}
                   </p>
                   <div className="flex flex-wrap gap-1.5">
                     {selectedService.refill ? (
@@ -1190,6 +1266,44 @@ export default function NewOrderPage() {
             </div>
           </aside>
           </div>
+
+          {selectedService ? (
+            <div
+              className="fixed inset-x-0 bottom-0 z-30 border-t border-line-strong bg-canvas/95 px-4 pt-3 backdrop-blur xl:hidden"
+              style={{
+                paddingBottom: "max(0.75rem, env(safe-area-inset-bottom))",
+              }}
+            >
+              <div className="mx-auto flex max-w-[640px] items-center gap-3">
+                <div className="min-w-0 flex-1">
+                  <p className="text-[10.5px] text-ink-mute">
+                    {t("Total charge", "إجمالي المبلغ")}
+                  </p>
+                  <p className="num text-[20px] font-semibold leading-tight text-ink">
+                    {formatCurrency(charge)}
+                  </p>
+                  <p className="num-sm text-[10px] text-ink-mute">
+                    {t("Balance", "الرصيد")} {formatCurrency(balance)}
+                  </p>
+                </div>
+                <Button
+                  type="submit"
+                  form="new-order-form"
+                  size="lg"
+                  isLoading={submitting}
+                  disabled={
+                    !selectedService ||
+                    insufficient ||
+                    charge <= 0 ||
+                    Boolean(liveLinkError)
+                  }
+                  className="shrink-0"
+                >
+                  {t("Place order", "تأكيد الطلب")}
+                </Button>
+              </div>
+            </div>
+          ) : null}
         </div>
       )}
     </div>

@@ -16,6 +16,8 @@ import {
   shouldUseDeterministicRouter,
 } from "@/lib/agent-fallback-router";
 import { isLanguage, type Language } from "@/lib/i18n";
+import { localize, readApiLanguage } from "@/lib/api-language";
+import { localizeServiceName } from "@/lib/service-localization";
 
 export const runtime = "nodejs";
 export const maxDuration = 120;
@@ -197,6 +199,54 @@ function readPageContext(value: unknown): AgentToolContext["pageContext"] {
   };
 }
 
+function record(value: unknown): Record<string, unknown> {
+  return value && typeof value === "object"
+    ? (value as Record<string, unknown>)
+    : {};
+}
+
+function list(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+function str(value: unknown): string {
+  return typeof value === "string" ? value : "";
+}
+
+function localizeServiceMentions(
+  reply: string,
+  actions: AgentAction[]
+): string {
+  let localized = reply;
+
+  const replaceName = (rawName: string) => {
+    if (rawName.length < 4 || !localized.includes(rawName)) return;
+    localized = localized.split(rawName).join(localizeServiceName(rawName));
+  };
+
+  for (const action of actions) {
+    const payload = record(action.payload);
+
+    if (action.type === "services") {
+      for (const service of list(payload.services)) {
+        replaceName(str(record(service).name));
+      }
+    }
+
+    if (action.type === "prefill_order") {
+      replaceName(str(payload.serviceName));
+    }
+
+    if (action.type === "account") {
+      for (const order of list(payload.orders)) {
+        replaceName(str(record(order).serviceName));
+      }
+    }
+  }
+
+  return localized;
+}
+
 function safeReply(
   content: unknown,
   language: Language,
@@ -207,7 +257,11 @@ function safeReply(
       ? scrubAgentReply(content.trim(), language)
       : "";
 
-  if (reply) return reply;
+  if (reply) {
+    return language === "ar"
+      ? localizeServiceMentions(reply, actions)
+      : reply;
+  }
 
   if (actions.some((action) => action.type === "prefill_order")) {
     return language === "ar"
@@ -260,27 +314,43 @@ async function authenticate(
 
 export async function POST(request: NextRequest) {
   let body: AgentRequestBody;
+  const requestLanguage = readApiLanguage(request);
 
   try {
     body = (await request.json()) as AgentRequestBody;
   } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    return NextResponse.json(
+      { error: localize(requestLanguage, "Invalid request body.", "طلب غير صالح.") },
+      { status: 400 }
+    );
   }
+
+  const language: Language = isLanguage(body.language)
+    ? body.language
+    : requestLanguage;
 
   const auth = await authenticate(request);
 
   if (!auth) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(language, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   if (!allowRequest(auth.uid)) {
     return NextResponse.json(
-      { error: "Too many assistant requests. Wait a minute and retry." },
+      {
+        error: localize(
+          language,
+          "Too many assistant requests. Wait a minute and retry.",
+          "طلبات كثيرة على المساعد. انتظر دقيقة ثم حاول مرة أخرى."
+        ),
+      },
       { status: 429 }
     );
   }
 
-  const language: Language = isLanguage(body.language) ? body.language : "en";
   const page =
     typeof body.page === "string" && body.page.startsWith("/")
       ? body.page.slice(0, 80)
@@ -359,7 +429,7 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error("Agent direct prepare action failed:", error);
         return NextResponse.json(
-          { error: "The order preparation failed. Please retry." },
+          { error: language === "ar" ? "تعذّر تجهيز الطلب. حاول مرة أخرى." : "The order preparation failed. Please retry." },
           { status: 500 }
         );
       }
@@ -399,7 +469,7 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error("Agent direct order action failed:", error);
         return NextResponse.json(
-          { error: "The order action failed. Please retry." },
+          { error: language === "ar" ? "تعذّر تنفيذ إجراء الطلب. حاول مرة أخرى." : "The order action failed. Please retry." },
           { status: 500 }
         );
       }
@@ -440,7 +510,7 @@ export async function POST(request: NextRequest) {
       } catch (error) {
         console.error("Agent direct order action failed:", error);
         return NextResponse.json(
-          { error: "The order action failed. Please retry." },
+          { error: language === "ar" ? "تعذّر تنفيذ إجراء الطلب. حاول مرة أخرى." : "The order action failed. Please retry." },
           { status: 500 }
         );
       }
@@ -451,7 +521,7 @@ export async function POST(request: NextRequest) {
 
   if (messages.length === 0 || messages[messages.length - 1].role !== "user") {
     return NextResponse.json(
-      { error: "A customer message is required." },
+      { error: language === "ar" ? "رسالة العميل مطلوبة." : "A customer message is required." },
       { status: 400 }
     );
   }

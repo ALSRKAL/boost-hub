@@ -15,6 +15,9 @@ import {
 import { formatCurrency, formatNumber } from "@/lib/constants";
 import { formatAverageTimeBilingual } from "@/lib/i18n";
 import {
+  getPlatformDisplayLabel,
+  getServiceDisplayCategory,
+  getServiceDisplayName,
   getServicePrice,
   groupServicesByPlatform,
   minServicePrice,
@@ -25,11 +28,13 @@ import {
 import { getServiceGuidance } from "@/lib/service-guidance";
 import type { PlatformKey } from "@/lib/service-platforms";
 import { getServiceSections } from "@/lib/service-ordering";
+import { localizeSectionLabel } from "@/lib/service-localization";
+import { translateErrorMessage } from "@/lib/error-messages";
 
 type PlatformFilter = PlatformKey | "all";
 
 export default function ServicesPage() {
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const [services, setServices] = useState<ServiceItem[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -86,7 +91,10 @@ export default function ServicesPage() {
   }, [reloadKey]);
 
   const groups = useMemo(() => groupServicesByPlatform(services), [services]);
-  const searched = useMemo(() => searchServices(services, query), [services, query]);
+  const searched = useMemo(
+    () => searchServices(services, query, language),
+    [services, query, language]
+  );
 
   const counts = useMemo(() => {
     const byPlatform = Object.fromEntries(
@@ -176,7 +184,7 @@ export default function ServicesPage() {
                 }}
               >
                 <PlatformIcon platform={group.platform.key} className="h-3.5 w-3.5" />
-                {group.platform.label}
+                {getPlatformDisplayLabel(group.platform, language)}
                 <span className="chip-count">
                   {formatNumber(counts.byPlatform[group.platform.key] ?? 0)}
                 </span>
@@ -191,7 +199,7 @@ export default function ServicesPage() {
       ) : error ? (
         <ErrorState
           title={t("Catalog unavailable", "الكتالوج غير متاح")}
-          message={error}
+          message={translateErrorMessage(error, language)}
           onRetry={() => setReloadKey((value) => value + 1)}
         />
       ) : visibleGroups.length === 0 ? (
@@ -247,7 +255,7 @@ function PlatformSection({
   group: PlatformGroup;
   expandAll: boolean;
 }) {
-  const { t } = useLanguage();
+  const { language, t } = useLanguage();
   const sections = getServiceSections(group.services, group.platform.key);
   const from = minServicePrice(group.services);
   const [expandedSections, setExpandedSections] = useState<string[]>([]);
@@ -262,7 +270,7 @@ function PlatformSection({
           </span>
           <div className="min-w-0">
             <h2 className="truncate text-[14px] font-semibold text-ink">
-              {group.platform.label}
+              {getPlatformDisplayLabel(group.platform, language)}
             </h2>
             <p className="text-[11.5px] text-ink-mute">
               {t(
@@ -296,7 +304,11 @@ function PlatformSection({
         return (
         <div key={section.key} className="border-b border-line last:border-b-0">
           <div className="flex items-center justify-between gap-3 bg-subtle px-4 py-2">
-            <h3 className="text-[12px] font-semibold text-ink">{section.label}</h3>
+            <h3 className="text-[12px] font-semibold text-ink">
+              {language === "ar"
+                ? localizeSectionLabel(section.key, section.label)
+                : section.label}
+            </h3>
             <span className="num-sm text-[11px] text-ink-mute">
               {formatNumber(section.services.length)}
             </span>
@@ -380,8 +392,12 @@ function ServiceRow({ service }: { service: ServiceItem }) {
         <span className="num-sm text-ink-mute">#{service.id}</span>
       </td>
       <td>
-        <p className="cell-strong max-w-[420px] leading-5">{service.name}</p>
-        <p className="mt-0.5 text-[11.5px] text-ink-mute">{service.category}</p>
+        <p className="cell-strong max-w-[420px] leading-5">
+          {getServiceDisplayName(service, language)}
+        </p>
+        <p className="mt-0.5 text-[11.5px] text-ink-mute">
+          {getServiceDisplayCategory(service, language)}
+        </p>
         <p className="mt-0.5 max-w-[420px] truncate text-[10.5px] text-ink-mute">
           {pick(guide.targetLabel)} ·{" "}
           <span dir="ltr" className="font-mono">
@@ -423,7 +439,7 @@ function ServiceRow({ service }: { service: ServiceItem }) {
           href={`/new-order?service=${service.id}`}
           className="btn btn-secondary btn-sm"
         >
-          {t("Order", "اطلب")}
+          {t("Order", "اطلب الآن")}
         </Link>
       </td>
     </tr>
@@ -440,9 +456,11 @@ function ServiceCard({ service }: { service: ServiceItem }) {
         <div className="min-w-0">
           <p className="num-sm text-[11px] text-ink-mute">#{service.id}</p>
           <p className="mt-1 text-[13px] font-medium leading-5 text-ink">
-            {service.name}
+            {getServiceDisplayName(service, language)}
           </p>
-          <p className="mt-0.5 text-[11.5px] text-ink-mute">{service.category}</p>
+          <p className="mt-0.5 text-[11.5px] text-ink-mute">
+            {getServiceDisplayCategory(service, language)}
+          </p>
           <p className="mt-0.5 line-clamp-1 text-[10.5px] text-ink-mute">
             {pick(guide.targetLabel)} ·{" "}
             <span dir="ltr" className="font-mono">

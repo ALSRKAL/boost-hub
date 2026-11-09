@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAdminAuth } from "@/lib/firebase-admin";
 import { placeOrder } from "@/lib/order-engine";
+import { readApiLanguage, localize } from "@/lib/api-language";
 import type { Language } from "@/lib/i18n";
 
 export const runtime = "nodejs";
@@ -29,17 +30,25 @@ function optionalPositiveInteger(value: unknown): number | null {
 
 export async function POST(request: NextRequest) {
   let body: OrderRequestBody;
+  const requestLanguage = readApiLanguage(request);
 
   try {
     body = (await request.json()) as OrderRequestBody;
   } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    return NextResponse.json(
+      { error: localize(requestLanguage, "Invalid request body.", "طلب غير صالح.") },
+      { status: 400 }
+    );
   }
 
+  const language = readApiLanguage(request, body.lang);
   const token = getBearerToken(request.headers.get("authorization"));
 
   if (!token) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(language, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   let decodedToken;
@@ -48,20 +57,29 @@ export async function POST(request: NextRequest) {
     decodedToken = await getAdminAuth().verifyIdToken(token);
   } catch (error) {
     console.error("Failed to verify Firebase ID token:", error);
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(language, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   const userId = typeof body.userId === "string" ? body.userId.trim() : "";
 
   if (decodedToken.uid !== userId) {
     return NextResponse.json(
-      { error: "You can only place orders for your own account." },
+      {
+        error: localize(
+          language,
+          "You can only place orders for your own account.",
+          "يمكنك إنشاء طلبات لحسابك فقط."
+        ),
+      },
       { status: 403 }
     );
   }
 
   const quantity = Number(body.quantity);
-  const lang: Language = body.lang === "ar" ? "ar" : "en";
+  const lang: Language = language;
   const result = await placeOrder({
     userId,
     userEmail: decodedToken.email ?? "",

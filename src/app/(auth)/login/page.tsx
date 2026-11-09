@@ -4,35 +4,46 @@ import { useState, type FormEvent } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import Button from "@/components/ui/Button";
 import Input from "@/components/ui/Input";
 import Icon from "@/components/ui/Icon";
 import { Notice } from "@/components/ui/Primitives";
 
-function mapAuthError(message: string): string {
+function mapAuthError(message: string, language: "en" | "ar"): string {
+  const ar = language === "ar";
+
   if (
     message.includes("invalid-credential") ||
     message.includes("wrong-password") ||
     message.includes("invalid-login-credentials")
   ) {
-    return "Email or password is incorrect.";
+    return ar
+      ? "البريد الإلكتروني أو كلمة المرور غير صحيحة."
+      : "Email or password is incorrect.";
   }
   if (message.includes("user-not-found")) {
-    return "No account exists with this email.";
+    return ar
+      ? "لا يوجد حساب بهذا البريد الإلكتروني."
+      : "No account exists with this email.";
   }
   if (message.includes("too-many-requests")) {
-    return "Too many attempts. Wait a minute and try again.";
+    return ar
+      ? "محاولات كثيرة جدًا. انتظر دقيقة ثم حاول مرة أخرى."
+      : "Too many attempts. Wait a minute and try again.";
   }
   if (message.includes("network-request-failed")) {
-    return "Network unavailable. Check your connection and retry.";
+    return ar
+      ? "الشبكة غير متاحة. تحقق من اتصالك وحاول مرة أخرى."
+      : "Network unavailable. Check your connection and retry.";
   }
   if (message.includes("user-disabled")) {
-    return "This account has been disabled.";
+    return ar ? "تم تعطيل هذا الحساب." : "This account has been disabled.";
   }
   if (message.includes("invalid-email")) {
-    return "Enter a valid email address.";
+    return ar ? "أدخل بريدًا إلكترونيًا صالحًا." : "Enter a valid email address.";
   }
-  return "Sign in failed. Please try again.";
+  return ar ? "تعذّر تسجيل الدخول. حاول مرة أخرى." : "Sign in failed. Please try again.";
 }
 
 function GoogleMark() {
@@ -60,6 +71,7 @@ function GoogleMark() {
 
 export default function LoginPage() {
   const { signIn, signInWithGoogle, resetPassword } = useAuth();
+  const { language, t } = useLanguage();
   const router = useRouter();
 
   const [mode, setMode] = useState<"signin" | "reset">("signin");
@@ -77,7 +89,7 @@ export default function LoginPage() {
     const trimmedEmail = email.trim();
 
     if (!trimmedEmail) {
-      setError("Enter your email address.");
+      setError(t("Enter your email address.", "أدخل بريدك الإلكتروني."));
       return;
     }
 
@@ -97,11 +109,26 @@ export default function LoginPage() {
         ) {
           setResetSent(true);
         } else if (message.includes("too-many-requests")) {
-          setError("Too many attempts. Wait a minute and try again.");
+          setError(
+            t(
+              "Too many attempts. Wait a minute and try again.",
+              "محاولات كثيرة جدًا. انتظر دقيقة ثم حاول مرة أخرى."
+            )
+          );
         } else if (message.includes("network-request-failed")) {
-          setError("Network unavailable. Check your connection and retry.");
+          setError(
+            t(
+              "Network unavailable. Check your connection and retry.",
+              "الشبكة غير متاحة. تحقق من اتصالك وحاول مرة أخرى."
+            )
+          );
         } else {
-          setError("Could not send the reset email. Please try again.");
+          setError(
+            t(
+              "Could not send the reset email. Please try again.",
+              "تعذّر إرسال بريد إعادة التعيين. حاول مرة أخرى."
+            )
+          );
         }
       } finally {
         setLoading(false);
@@ -110,7 +137,7 @@ export default function LoginPage() {
     }
 
     if (!password) {
-      setError("Enter your password.");
+      setError(t("Enter your password.", "أدخل كلمة المرور."));
       return;
     }
 
@@ -120,7 +147,7 @@ export default function LoginPage() {
       await signIn(trimmedEmail, password);
       router.replace("/dashboard");
     } catch (err: unknown) {
-      setError(mapAuthError(err instanceof Error ? err.message : ""));
+      setError(mapAuthError(err instanceof Error ? err.message : "", language));
     } finally {
       setLoading(false);
     }
@@ -137,7 +164,7 @@ export default function LoginPage() {
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "";
       if (!message.includes("popup-closed")) {
-        setError(mapAuthError(message));
+        setError(mapAuthError(message, language));
       }
     } finally {
       setLoading(false);
@@ -147,14 +174,22 @@ export default function LoginPage() {
   return (
     <div>
       <div className="mb-6">
-        <p className="rule-label">Account</p>
+        <p className="rule-label">{t("Account", "الحساب")}</p>
         <h1 className="mt-1.5 text-[24px] font-semibold tracking-[-0.02em] text-ink">
-          {mode === "reset" ? "Reset password" : "Sign in"}
+          {mode === "reset"
+            ? t("Reset password", "إعادة تعيين كلمة المرور")
+            : t("Sign in", "تسجيل الدخول")}
         </h1>
         <p className="mt-1 text-[12.5px] leading-5 text-ink-mute">
           {mode === "reset"
-            ? "We will email a link to set a new password."
-            : "Use your panel account to place orders and track delivery."}
+            ? t(
+                "We will email a link to set a new password.",
+                "سنرسل رابطًا إلى بريدك لتعيين كلمة مرور جديدة."
+              )
+            : t(
+                "Use your panel account to place orders and track delivery.",
+                "استخدم حساب اللوحة لإنشاء الطلبات ومتابعة التنفيذ."
+              )}
         </p>
       </div>
 
@@ -167,8 +202,15 @@ export default function LoginPage() {
       {resetSent ? (
         <div className="mb-4">
           <Notice tone="positive">
-            If an account exists for <span className="font-medium">{email.trim()}</span>,
-            a password reset link is on its way. Check the spam folder too.
+            {t(
+              "If an account exists for",
+              "إذا كان هناك حساب مرتبط بـ"
+            )}{" "}
+            <span className="font-medium">{email.trim()}</span>
+            {t(
+              ", a password reset link is on its way. Check the spam folder too.",
+              "، فسيصل رابط إعادة تعيين كلمة المرور. تحقق أيضًا من مجلد الرسائل غير المرغوب فيها."
+            )}
           </Notice>
         </div>
       ) : null}
@@ -182,13 +224,13 @@ export default function LoginPage() {
             disabled={loading}
             leadingIcon={<GoogleMark />}
           >
-            Continue with Google
+            {t("Continue with Google", "المتابعة باستخدام جوجل")}
           </Button>
 
           <div className="my-5 flex items-center gap-3">
             <span className="h-px flex-1 bg-line" />
             <span className="text-[10.5px] font-medium uppercase tracking-[0.08em] text-ink-mute">
-              or use email
+              {t("or use email", "أو استخدم البريد الإلكتروني")}
             </span>
             <span className="h-px flex-1 bg-line" />
           </div>
@@ -197,7 +239,7 @@ export default function LoginPage() {
 
       <form onSubmit={handleSubmit} className="space-y-4" noValidate>
         <Input
-          label="Email"
+          label={t("Email", "البريد الإلكتروني")}
           type="email"
           placeholder="you@example.com"
           value={email}
@@ -213,9 +255,9 @@ export default function LoginPage() {
 
         {mode === "signin" ? (
           <Input
-            label="Password"
+            label={t("Password", "كلمة المرور")}
             type={showPassword ? "text" : "password"}
-            placeholder="Enter your password"
+            placeholder={t("Enter your password", "أدخل كلمة المرور")}
             value={password}
             onChange={(event) => {
               setPassword(event.target.value);
@@ -233,14 +275,18 @@ export default function LoginPage() {
                 }}
                 className="text-[11.5px] font-medium text-accent hover:underline"
               >
-                Forgot password?
+                {t("Forgot password?", "نسيت كلمة المرور؟")}
               </button>
             }
             trailingAction={
               <button
                 type="button"
                 onClick={() => setShowPassword((visible) => !visible)}
-                aria-label={showPassword ? "Hide password" : "Show password"}
+                aria-label={
+                  showPassword
+                    ? t("Hide password", "إخفاء كلمة المرور")
+                    : t("Show password", "إظهار كلمة المرور")
+                }
                 aria-pressed={showPassword}
                 className="flex h-7 w-7 items-center justify-center rounded-[var(--radius-xs)] text-ink-mute hover:bg-sunken hover:text-ink"
               >
@@ -251,7 +297,9 @@ export default function LoginPage() {
         ) : null}
 
         <Button type="submit" fullWidth size="lg" isLoading={loading}>
-          {mode === "reset" ? "Send reset link" : "Sign in"}
+          {mode === "reset"
+            ? t("Send reset link", "إرسال رابط إعادة التعيين")
+            : t("Sign in", "تسجيل الدخول")}
         </Button>
       </form>
 
@@ -265,14 +313,14 @@ export default function LoginPage() {
           }}
           className="mt-4 flex items-center gap-1.5 text-[12px] font-medium text-ink-soft hover:text-ink"
         >
-          <Icon name="chevron-left" size={13} />
-          Back to sign in
+          <Icon name="chevron-left" size={13} className="rtl:rotate-180" />
+          {t("Back to sign in", "العودة لتسجيل الدخول")}
         </button>
       ) : (
         <p className="mt-5 text-[12.5px] text-ink-mute">
-          New here?{" "}
+          {t("New here?", "جديد هنا؟")}{" "}
           <Link href="/register" className="font-medium text-accent hover:underline">
-            Create an account
+            {t("Create an account", "إنشاء حساب")}
           </Link>
         </p>
       )}

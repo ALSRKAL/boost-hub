@@ -3,27 +3,35 @@
 import { useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
+import { useLanguage } from "@/context/LanguageContext";
 import { APP_CONFIG } from "@/lib/constants";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import Icon from "@/components/ui/Icon";
 
 const FACTS = [
   {
-    label: "Catalog",
-    value: "Live provider rates with min/max, refill and cancel flags.",
+    labelEn: "Catalog",
+    labelAr: "الكتالوج",
+    valueEn: "Live provider rates with min/max, refill and cancel flags.",
+    valueAr: "أسعار المزود المباشرة مع الحدود الدنيا والعليا وخيارات التعويض والإلغاء.",
   },
   {
-    label: "Settlement",
-    value: "Manual UPI top-ups, reviewed and credited by an administrator.",
+    labelEn: "Settlement",
+    labelAr: "التسوية",
+    valueEn: "Manual UPI top-ups, reviewed and credited by an administrator.",
+    valueAr: "إيداعات UPI يدوية يراجعها المدير ويضيفها إلى الرصيد.",
   },
   {
-    label: "Tracking",
-    value: "Order status, partial delivery, and refunds in one ledger.",
+    labelEn: "Tracking",
+    labelAr: "المتابعة",
+    valueEn: "Order status, partial delivery, and refunds in one ledger.",
+    valueAr: "حالة الطلب والتسليم الجزئي والاسترداد في سجل واحد.",
   },
 ];
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
   const { user, loading } = useAuth();
+  const { language, t } = useLanguage();
   const router = useRouter();
 
   useEffect(() => {
@@ -54,32 +62,37 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
               {APP_CONFIG.name}
             </span>
             <span className="block text-[10.5px] leading-4 text-ink-mute">
-              {APP_CONFIG.tagline}
+              {t(APP_CONFIG.tagline, "لوحة خدمات وسائل التواصل الاجتماعي")}
             </span>
           </span>
         </div>
 
         <div className="max-w-[430px]">
-          <p className="rule-label">Operations panel</p>
+          <p className="rule-label">{t("Operations panel", "لوحة العمليات")}</p>
           <h1 className="mt-3 text-[30px] font-semibold leading-[1.15] tracking-[-0.03em] text-ink">
-            Place orders, follow delivery, settle the balance.
+            {t(
+              "Place orders, follow delivery, settle the balance.",
+              "أنشئ الطلبات وتابع التنفيذ وسوِّ الرصيد."
+            )}
           </h1>
           <p className="mt-3 text-[13px] leading-6 text-ink-soft">
-            One screen for the catalog, order ledger, and wallet. No dashboards
-            that hide the numbers.
+            {t(
+              "One screen for the catalog, order ledger, and wallet. No dashboards that hide the numbers.",
+              "شاشة واحدة للكتالوج وسجل الطلبات والمحفظة. لوحات لا تخفي الأرقام."
+            )}
           </p>
 
           <dl className="mt-8 border-y border-line">
             {FACTS.map((fact) => (
               <div
-                key={fact.label}
+                key={fact.labelEn}
                 className="flex gap-4 border-b border-line py-3 last:border-b-0"
               >
                 <dt className="w-20 shrink-0 text-[11px] font-semibold uppercase tracking-[0.07em] text-ink-mute">
-                  {fact.label}
+                  {language === "ar" ? fact.labelAr : fact.labelEn}
                 </dt>
                 <dd className="text-[12.5px] leading-5 text-ink-soft">
-                  {fact.value}
+                  {language === "ar" ? fact.valueAr : fact.valueEn}
                 </dd>
               </div>
             ))}
@@ -88,7 +101,10 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
 
         <p className="flex items-center gap-1.5 text-[11px] text-ink-mute">
           <Icon name="shield" size={13} />
-          Balance and prices are always shown in INR.
+          {t(
+            "Balance and prices are always shown in INR.",
+            "يُعرض الرصيد والأسعار دائمًا بالروبية الهندية."
+          )}
         </p>
       </section>
 
@@ -103,7 +119,7 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
                 {APP_CONFIG.name}
               </span>
               <span className="block text-[10.5px] leading-4 text-ink-mute">
-                {APP_CONFIG.tagline}
+                {t(APP_CONFIG.tagline, "لوحة خدمات وسائل التواصل الاجتماعي")}
               </span>
             </span>
           </div>

@@ -94,9 +94,14 @@ const integerFormatter = new Intl.NumberFormat(APP_CONFIG.currency.locale, {
   maximumFractionDigits: 0,
 });
 
+const LRI = "\u2066";
+const PDI = "\u2069";
+
 export function formatCurrency(amount: number): string {
   const safeAmount = Number.isFinite(amount) ? amount : 0;
-  return `${APP_CONFIG.currency.symbol}${currencyFormatter.format(safeAmount)}`;
+  return `${LRI}${APP_CONFIG.currency.symbol}${currencyFormatter.format(
+    safeAmount
+  )}${PDI}`;
 }
 
 /** Keeps the minus sign before the currency symbol: -₹50.00, not ₹-50.00. */
@@ -148,10 +153,11 @@ export function formatDate(date: Date | string | number | null | undefined): str
   if (!date) return "—";
   const value = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(value.getTime())) return "—";
-  return value.toLocaleDateString(APP_CONFIG.currency.locale, {
+  // Numeric day-first dates stay readable in both Arabic (RTL) and English.
+  return value.toLocaleDateString("en-GB", {
     year: "numeric",
-    month: "short",
-    day: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   });
 }
 
@@ -159,11 +165,12 @@ export function formatDateTime(date: Date | string | number | null | undefined):
   if (!date) return "—";
   const value = date instanceof Date ? date : new Date(date);
   if (Number.isNaN(value.getTime())) return "—";
-  return value.toLocaleString(APP_CONFIG.currency.locale, {
+  return value.toLocaleString("en-GB", {
     year: "numeric",
-    month: "short",
-    day: "numeric",
+    month: "2-digit",
+    day: "2-digit",
     hour: "2-digit",
     minute: "2-digit",
+    hour12: false,
   });
 }

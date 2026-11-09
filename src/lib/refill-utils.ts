@@ -235,8 +235,11 @@ export function canRequestRefill(
   }
 }
 
-export function formatCountdown(ms: number): string {
-  if (ms <= 0) return "now";
+export function formatCountdown(
+  ms: number,
+  language: "en" | "ar" = "en"
+): string {
+  if (ms <= 0) return language === "ar" ? "الآن" : "now";
 
   const totalMinutes = Math.ceil(ms / (1000 * 60));
   const days = Math.floor(totalMinutes / (24 * 60));
@@ -244,10 +247,15 @@ export function formatCountdown(ms: number): string {
   const minutes = totalMinutes % 60;
 
   const parts: string[] = [];
+  const dayUnit = language === "ar" ? "يوم" : "d";
+  const hourUnit = language === "ar" ? "ساعة" : "h";
+  const minuteUnit = language === "ar" ? "دقيقة" : "m";
 
-  if (days > 0) parts.push(`${days}d`);
-  if (hours > 0) parts.push(`${hours}h`);
-  if (minutes > 0 && days === 0) parts.push(`${minutes}m`);
+  if (days > 0) parts.push(`${days}${language === "ar" ? " " : ""}${dayUnit}`);
+  if (hours > 0)
+    parts.push(`${hours}${language === "ar" ? " " : ""}${hourUnit}`);
+  if (minutes > 0 && days === 0)
+    parts.push(`${minutes}${language === "ar" ? " " : ""}${minuteUnit}`);
 
-  return parts.join(" ") || "<1m";
+  return parts.join(" ") || (language === "ar" ? "أقل من دقيقة" : "<1m");
 }

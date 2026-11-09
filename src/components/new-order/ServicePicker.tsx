@@ -9,8 +9,14 @@ import {
   type KeyboardEvent,
 } from "react";
 import Icon from "@/components/ui/Icon";
+import { useLanguage } from "@/context/LanguageContext";
 import { formatCurrency, formatNumber } from "@/lib/constants";
-import { getServicePrice, type ServiceItem } from "@/lib/services";
+import {
+  getServiceDisplayCategory,
+  getServiceDisplayName,
+  getServicePrice,
+  type ServiceItem,
+} from "@/lib/services";
 
 export default function ServicePicker({
   services,
@@ -28,6 +34,7 @@ export default function ServicePicker({
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const { language, t } = useLanguage();
   const triggerRef = useRef<HTMLButtonElement>(null);
   const searchRef = useRef<HTMLInputElement>(null);
   const optionRefs = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -43,11 +50,16 @@ export default function ServicePicker({
     if (!normalized) return source;
 
     return source.filter((service) =>
-      [service.id, service.name, service.category, service.type].some((field) =>
-        field.toLowerCase().includes(normalized)
-      )
+      [
+        service.id,
+        service.name,
+        service.category,
+        service.type,
+        language === "ar" ? getServiceDisplayName(service, language) : "",
+        language === "ar" ? getServiceDisplayCategory(service, language) : "",
+      ].some((field) => field.toLowerCase().includes(normalized))
     );
-  }, [query, services, searchServices]);
+  }, [query, services, searchServices, language]);
 
   const filtered = useMemo(() => matches.slice(0, 80), [matches]);
 
@@ -145,8 +157,11 @@ export default function ServicePicker({
       >
         <span className={`truncate ${selected ? "text-ink" : "text-ink-mute"}`}>
           {selected
-            ? `#${selected.id} · ${selected.name}`
-            : `Select a service (${formatNumber(services.length)})`}
+            ? `#${selected.id} · ${getServiceDisplayName(selected, language)}`
+            : t(
+                `Select a service (${formatNumber(services.length)})`,
+                `اختر خدمة (${formatNumber(services.length)})`
+              )}
         </span>
         <Icon
           name="chevron-down"
@@ -175,8 +190,21 @@ export default function ServicePicker({
                   setActiveIndex(0);
                 }}
                 onKeyDown={handleSearchKeyDown}
-                placeholder="Filter by name, ID, or category"
-                className="control h-9 ps-8 text-[13px]"
+                placeholder={t(
+                  "Filter by name, ID, or category",
+                  "تصفية بالاسم أو المعرف أو القسم"
+                )}
+                className="control h-11 ps-8 text-[13px]"
+                onFocus={() => {
+                  window.setTimeout(
+                    () =>
+                      searchRef.current?.scrollIntoView({
+                        block: "center",
+                        behavior: "smooth",
+                      }),
+                    120
+                  );
+                }}
                 role="combobox"
                 aria-expanded="true"
                 aria-controls={listboxId}
@@ -195,12 +223,12 @@ export default function ServicePicker({
           <div
             id={listboxId}
             role="listbox"
-            aria-label="Services"
-            className="scroll-thin max-h-[280px] overflow-y-auto p-1"
+            aria-label={t("Services", "الخدمات")}
+            className="scroll-thin max-h-[50vh] overflow-y-auto p-1"
           >
             {matches.length === 0 ? (
               <p className="px-2.5 py-6 text-center text-[12.5px] text-ink-mute">
-                No services match “{query}”.
+                {t("No services match", "لا توجد خدمات مطابقة")} “{query}”.
               </p>
             ) : (
               filtered.map((service, index) => {
@@ -222,16 +250,17 @@ export default function ServicePicker({
                       event.preventDefault();
                       select(service);
                     }}
-                    className={`flex cursor-pointer items-start justify-between gap-3 rounded-[var(--radius-xs)] px-2.5 py-2 ${
+                    className={`flex min-h-11 cursor-pointer items-start justify-between gap-3 rounded-[var(--radius-xs)] px-2.5 py-2.5 ${
                       isActive ? "bg-sunken" : ""
                     }`}
                   >
                     <div className="min-w-0">
                       <p className="truncate text-[12.5px] font-medium text-ink">
-                        {service.name}
+                        {getServiceDisplayName(service, language)}
                       </p>
                       <p className="mt-0.5 text-[11px] text-ink-mute">
-                        #{service.id} · {service.category} ·{" "}
+                        #{service.id} ·{" "}
+                        {getServiceDisplayCategory(service, language)} ·{" "}
                         {formatNumber(service.min)}–{formatNumber(service.max)}
                       </p>
                     </div>
@@ -244,8 +273,10 @@ export default function ServicePicker({
             )}
             {matches.length > filtered.length ? (
               <p className="border-t border-line px-2.5 py-2 text-[10.5px] text-ink-mute">
-                Showing the first {filtered.length} of {matches.length}. Refine the
-                search to narrow the list.
+                {t(
+                  `Showing the first ${filtered.length} of ${matches.length}. Refine the search to narrow the list.`,
+                  `يتم عرض أول ${filtered.length} من ${matches.length}. حسّن البحث لتضييق القائمة.`
+                )}
               </p>
             ) : null}
           </div>
