@@ -505,7 +505,7 @@ export async function runDeterministicAgent(
           const name = str(service.name);
           return `${language === "ar" ? localizeServiceName(name) : name} · ${formatCurrency(
             num(service.customerRatePer1000)
-          )} / 1k`;
+          )} ${language === "ar" ? "/ 1000" : "/ 1k"}`;
         })
         .join("\n");
 

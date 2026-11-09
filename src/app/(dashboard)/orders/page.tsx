@@ -632,6 +632,15 @@ export default function OrdersPage() {
                     <td>
                       <div className="space-y-1">
                         <StatusBadge status={order.status} />
+                        {order.startCount !== undefined ||
+                        order.remains !== undefined ? (
+                          <p className="num-sm text-[10.5px] text-ink-mute">
+                            {t("Start", "البداية")}{" "}
+                            {formatNumber(order.startCount ?? 0)} ·{" "}
+                            {t("Remaining", "المتبقي")}{" "}
+                            {formatNumber(order.remains ?? 0)}
+                          </p>
+                        ) : null}
                         {refundNote(order, t, language) ? (
                           <p className="text-[10.5px] text-ink-mute">
                             {refundNote(order, t, language)}
@@ -716,6 +725,25 @@ export default function OrdersPage() {
                       {formatDate(order.createdAt?.toDate?.() ?? null)}
                     </dd>
                   </div>
+                  {order.startCount !== undefined ||
+                  order.remains !== undefined ? (
+                    <>
+                      <div>
+                        <dt className="text-ink-mute">{t("Start", "البداية")}</dt>
+                        <dd className="num-sm mt-0.5 text-ink">
+                          {formatNumber(order.startCount ?? 0)}
+                        </dd>
+                      </div>
+                      <div>
+                        <dt className="text-ink-mute">
+                          {t("Remaining", "المتبقي")}
+                        </dt>
+                        <dd className="num-sm mt-0.5 text-ink">
+                          {formatNumber(order.remains ?? 0)}
+                        </dd>
+                      </div>
+                    </>
+                  ) : null}
                 </dl>
 
                 {refundNote(order, t, language) ? (

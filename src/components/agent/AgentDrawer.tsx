@@ -395,7 +395,7 @@ function ActionCard({
                   </span>
                   <span>{targetLabel}</span>
                   <span className="num-sm text-ink">
-                    {formatCurrency(price)} / 1k
+                    {formatCurrency(price)} {t("/ 1k", "/ 1000")}
                   </span>
                   <span className="num-sm">
                     {formatNumber(min)}–{formatNumber(max)}
