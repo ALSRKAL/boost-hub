@@ -3,6 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import Link from "next/link";
+import Image from "next/image";
+import { useRouter } from "next/navigation";
 import { useAgent } from "@/context/AgentContext";
 import { useLanguage } from "@/context/LanguageContext";
 import Button from "@/components/ui/Button";
@@ -62,6 +64,7 @@ export function AgentDrawer() {
     pendingPatch,
   } = useAgent();
   const { language, t } = useLanguage();
+  const router = useRouter();
   const [draft, setDraft] = useState("");
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -131,6 +134,12 @@ export function AgentDrawer() {
     if (!value || isSending) return;
     setDraft("");
     void sendMessage(value);
+  }
+
+  function navigateTo(path: string) {
+    if (!path.startsWith("/")) return;
+    closeAgent();
+    router.push(path);
   }
 
   return createPortal(
@@ -244,6 +253,7 @@ export function AgentDrawer() {
                         onOrderAction={requestOrderAction}
                         confirmedDrafts={confirmedDrafts}
                         isSending={isSending}
+                        onNavigate={navigateTo}
                         onUseService={(serviceId) => {
                           if (formContext.link && formContext.quantity) {
                             void prepareService(serviceId);
@@ -341,6 +351,7 @@ function ActionCard({
   confirmedDrafts,
   isSending,
   onUseService,
+  onNavigate,
 }: {
   action: AgentAction;
   onConfirm: (clientRequestId: string) => void;
@@ -348,6 +359,7 @@ function ActionCard({
   confirmedDrafts: Set<string>;
   isSending: boolean;
   onUseService: (serviceId: string) => void;
+  onNavigate: (path: string) => void;
 }) {
   const { language, t } = useLanguage();
   const payload = record(action.payload);
@@ -661,6 +673,8 @@ function ActionCard({
 
   if (action.type === "deposit") {
     const upiId = str(payload.upiId);
+    const rawQrPath = str(payload.qrPath);
+    const qrPath = rawQrPath.startsWith("/") ? rawQrPath : "/payment-qr.png";
     const guide = payload.guide === true;
     const message = str(payload.message);
     const balance = num(payload.balance);
@@ -685,6 +699,28 @@ function ActionCard({
                 <CopyButton value={upiId} label={t("Copy", "نسخ")} />
               ) : null}
             </div>
+
+            <div className="mt-2 flex items-center gap-3 rounded-[var(--radius-xs)] border border-line bg-white p-2">
+              <Image
+                src={qrPath}
+                width={104}
+                height={104}
+                alt={t("UPI payment QR code", "رمز QR للدفع عبر UPI")}
+                className="h-[104px] w-[104px] shrink-0 rounded-[var(--radius-xs)] object-contain"
+              />
+              <div className="min-w-0">
+                <p className="text-[11.5px] font-medium text-ink">
+                  {t("Scan to pay", "امسح للدفع")}
+                </p>
+                <p className="mt-0.5 text-[10.5px] leading-4 text-ink-mute">
+                  {t(
+                    "Open any UPI app, scan this code, then submit the UTR below.",
+                    "افتح أي تطبيق UPI، امسح هذا الرمز، ثم أرسل رقم UTR."
+                  )}
+                </p>
+              </div>
+            </div>
+
             {balance > 0 ? (
               <p className="mt-2 text-[10.5px] text-ink-mute">
                 {t("Current balance", "الرصيد الحالي")}:{" "}
@@ -707,6 +743,33 @@ function ActionCard({
               : t("Deposit submitted.", "تم إرسال الإيداع.")}
           </p>
         )}
+      </div>
+    );
+  }
+
+  if (action.type === "navigate") {
+    const path = str(payload.path);
+    const label = record(payload.label);
+    const labelText =
+      language === "ar"
+        ? str(label.ar) || str(label.en)
+        : str(label.en) || str(label.ar);
+
+    if (!path.startsWith("/")) return null;
+
+    return (
+      <div className="flex items-center justify-between gap-3 rounded-[var(--radius-sm)] border border-line bg-surface px-3 py-2.5">
+        <div className="min-w-0">
+          <p className="text-[10px] text-ink-mute">
+            {t("Page", "الصفحة")}
+          </p>
+          <p className="truncate text-[12px] font-medium text-ink">
+            {labelText || path}
+          </p>
+        </div>
+        <Button size="sm" onClick={() => onNavigate(path)}>
+          {t("Open", "فتح")}
+        </Button>
       </div>
     );
   }

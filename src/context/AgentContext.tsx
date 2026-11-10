@@ -163,9 +163,18 @@ export function AgentProvider({ children }: { children: ReactNode }) {
           const patch = normalizePatch(action.payload?.formPatch);
           if (patch.serviceId) applyFormPatch(patch);
         }
+
+        if (
+          action.type === "navigate" &&
+          action.payload?.auto === true &&
+          typeof action.payload?.path === "string"
+        ) {
+          router.push(action.payload.path);
+          setOpen(false);
+        }
       }
     },
-    [applyFormPatch, language]
+    [applyFormPatch, language, router]
   );
 
   const sendMessage = useCallback(

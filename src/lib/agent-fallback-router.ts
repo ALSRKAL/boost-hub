@@ -7,6 +7,11 @@ import type { Language } from "@/lib/i18n";
 import { formatCurrency, formatNumber } from "@/lib/constants";
 import { localizeServiceName } from "@/lib/service-localization";
 import { localizeStatusText } from "@/lib/error-messages";
+import {
+  helpReply,
+  matchPlatformHelp,
+  pageLabel,
+} from "@/lib/platform-help";
 
 export interface DeterministicAgentInput {
   messages: Array<{ role: "user" | "assistant"; content: string }>;
@@ -163,6 +168,18 @@ export function shouldUseDeterministicRouter(text: string): boolean {
   const value = normalizeDigits(text).toLowerCase();
   if (!value.trim()) return false;
 
+  if (detectNavigation(value)) return true;
+  if (matchPlatformHelp(value)) return true;
+
+  if (
+    looksLikeQuestion(value) &&
+    !/رصيدي|حالة طلبي|حالة طلباتي|my balance|my orders? status|track my order/i.test(
+      value
+    )
+  ) {
+    return false;
+  }
+
   if (
     /balance|wallet|add funds|deposit|upi|utr|رصيد|محفظة|شحن|إيداع|ايداع/.test(
       value
@@ -240,6 +257,54 @@ function replyForStatus(
     : `Here is your latest order status:\n${lines.join("\n")}\nUse the refill or cancel buttons on the cards below when eligible.`;
 }
 
+function looksLikeQuestion(text: string): boolean {
+  return /كيف|ليش|لماذا|ماذا|ما هو|ما هي|وش هو|وش هي|ايش|إيش|أين|اين|وين|هل |اشرح|وضح|معنى|الفرق|how |what |why |where |can i|do i|explain|difference|meaning/i.test(
+    text
+  );
+}
+
+const PAGE_KEYWORDS: Array<{ path: string; pattern: RegExp }> = [
+  {
+    path: "/add-funds",
+    pattern:
+      /إضافة رصيد|اضافة رصيد|المحفظة|محفظتي|شحن الرصيد|شحن رصيدي|add funds|wallet|top.?up|deposit/i,
+  },
+  {
+    path: "/orders",
+    pattern: /الطلبات|طلباتي|سجل الطلبات|orders|order history|my orders/i,
+  },
+  {
+    path: "/new-order",
+    pattern: /طلب جديد|صفحة الطلب|إنشاء طلب|انشاء طلب|new order/i,
+  },
+  {
+    path: "/services",
+    pattern: /الخدمات|الكتالوج|services|catalog/i,
+  },
+  {
+    path: "/dashboard",
+    pattern: /الرئيسية|النظرة العامة|لوحة التحكم|اللوحة الرئيسية|dashboard|overview|home/i,
+  },
+];
+
+function detectNavigation(text: string): {
+  path: string;
+  explicit: boolean;
+} | null {
+  const explicit = /افتح|خذني|ودني|انتقل|روح|أظهر|اظهر|open|take me|go to|navigate|show me/i.test(
+    text
+  );
+  const where = /أين|اين|وين|where/i.test(text);
+
+  if (!explicit && !where) return null;
+
+  const match = PAGE_KEYWORDS.find((item) => item.pattern.test(text));
+
+  if (!match) return null;
+
+  return { path: match.path, explicit };
+}
+
 export async function runDeterministicAgent(
   input: DeterministicAgentInput
 ): Promise<DeterministicAgentResult> {
@@ -254,6 +319,71 @@ export async function runDeterministicAgent(
   const normalizedText = normalizeDigits(text);
 
   try {
+    const navigation = detectNavigation(normalizedText);
+
+    if (navigation) {
+      const label = pageLabel(navigation.path);
+
+      return {
+        reply:
+          language === "ar"
+            ? navigation.explicit
+              ? `سأفتح صفحة ${label.ar}.`
+              : `صفحة ${label.ar} موجودة في القائمة الجانبية. يمكنك فتحها من الزر أدناه.`
+            : navigation.explicit
+              ? `Opening ${label.en}.`
+              : `${label.en} is available from the sidebar. You can open it with the button below.`,
+        actions: [
+          {
+            type: "navigate",
+            payload: {
+              path: navigation.path,
+              label,
+              auto: navigation.explicit,
+            },
+          },
+        ],
+        toolTrace: trace,
+        model: "deterministic",
+      };
+    }
+
+    const personalBalance = /رصيدي|الرصيد الحالي|my balance|wallet balance/i.test(
+      normalizedText
+    );
+    const personalStatus =
+      /حالة طلبي|حالة طلباتي|my order status|track my order/i.test(
+        normalizedText
+      );
+
+    if (
+      looksLikeQuestion(normalizedText) &&
+      !personalBalance &&
+      !personalStatus
+    ) {
+      const help = matchPlatformHelp(normalizedText);
+
+      if (help) {
+        return {
+          reply: helpReply(help, language),
+          actions: help.page
+            ? [
+                {
+                  type: "navigate",
+                  payload: {
+                    path: help.page,
+                    label: pageLabel(help.page),
+                    auto: false,
+                  },
+                },
+              ]
+            : [],
+          toolTrace: trace,
+          model: "deterministic",
+        };
+      }
+    }
+
     const link = extractLink(normalizedText);
     const platform =
       extractPlatform(normalizedText) ??
