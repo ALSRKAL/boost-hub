@@ -741,7 +741,7 @@ export default function NewOrderPage() {
                 <legend className="field-label">
                   {t("Platform", "المنصة")}
                 </legend>
-                <div className="scroll-x scrollbar-none flex w-full min-w-0 gap-1.5 pb-0.5">
+                <div className="flex w-full min-w-0 flex-wrap gap-1.5 pb-0.5">
                   {groups.map((group) => {
                     const active = group.platform.key === effectivePlatformKey;
 

@@ -22,6 +22,94 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     }
   }, [user, loading, router]);
 
+  useEffect(() => {
+    const draggableSelector = ".scroll-x";
+    let active: {
+      element: HTMLElement;
+      startX: number;
+      startScroll: number;
+      dragged: boolean;
+      sign: number;
+    } | null = null;
+
+    const markDraggable = () => {
+      document.querySelectorAll<HTMLElement>(draggableSelector).forEach((element) => {
+        if (element.scrollWidth > element.clientWidth + 1) {
+          element.dataset.draggable = "true";
+        } else {
+          delete element.dataset.draggable;
+        }
+      });
+    };
+
+    const onPointerDown = (event: PointerEvent) => {
+      if (!(event.target instanceof Element)) return;
+      const element = event.target.closest<HTMLElement>(draggableSelector);
+
+      if (!element || element.scrollWidth <= element.clientWidth + 1) return;
+      if (
+        event.target.closest(
+          "a, button, input, select, textarea, [role='button'], [role='tab']"
+        )
+      ) {
+        return;
+      }
+
+      active = {
+        element,
+        startX: event.clientX,
+        startScroll: element.scrollLeft,
+        dragged: false,
+        sign: window.getComputedStyle(element).direction === "rtl" ? 1 : -1,
+      };
+    };
+
+    const onPointerMove = (event: PointerEvent) => {
+      if (!active) return;
+
+      const delta = event.clientX - active.startX;
+
+      if (!active.dragged && Math.abs(delta) < 6) return;
+
+      if (!active.dragged) {
+        active.dragged = true;
+        active.element.classList.add("is-dragging");
+        document.body.style.userSelect = "none";
+      }
+
+      active.element.scrollLeft = active.startScroll + active.sign * delta;
+      event.preventDefault();
+    };
+
+    const finishDrag = () => {
+      if (!active) return;
+      active.element.classList.remove("is-dragging");
+      document.body.style.userSelect = "";
+      active = null;
+    };
+
+    const onResize = () => markDraggable();
+
+    markDraggable();
+    const observer = new MutationObserver(markDraggable);
+    observer.observe(document.body, { childList: true, subtree: true });
+    document.addEventListener("pointerdown", onPointerDown);
+    document.addEventListener("pointermove", onPointerMove, { passive: false });
+    document.addEventListener("pointerup", finishDrag);
+    document.addEventListener("pointercancel", finishDrag);
+    window.addEventListener("resize", onResize);
+
+    return () => {
+      observer.disconnect();
+      document.removeEventListener("pointerdown", onPointerDown);
+      document.removeEventListener("pointermove", onPointerMove);
+      document.removeEventListener("pointerup", finishDrag);
+      document.removeEventListener("pointercancel", finishDrag);
+      window.removeEventListener("resize", onResize);
+      document.body.style.userSelect = "";
+    };
+  }, []);
+
   if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-canvas">

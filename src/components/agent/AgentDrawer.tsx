@@ -277,7 +277,7 @@ export function AgentDrawer() {
         </div>
 
         <div className="shrink-0 border-t border-line bg-canvas px-4 py-3">
-          <div className="scroll-x scrollbar-none flex gap-1.5 pb-2">
+          <div className="flex flex-wrap gap-1.5 pb-2">
             {quickChips.map((chip) => (
               <button
                 key={chip.en}

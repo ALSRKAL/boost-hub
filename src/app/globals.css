@@ -402,16 +402,30 @@ select.control {
 .scroll-x {
   overflow-x: auto;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
+  scrollbar-width: auto;
+  scrollbar-color: var(--ink-mute) var(--surface-sunken);
+}
+
+.scroll-x[data-draggable="true"] {
+  cursor: grab;
+}
+
+.scroll-x.is-dragging {
+  cursor: grabbing;
+  scroll-behavior: auto;
 }
 
 .scroll-x::-webkit-scrollbar {
-  height: 6px;
+  height: 10px;
 }
 
 .scroll-x::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
+  background: var(--ink-mute);
+  border-radius: 99px;
+}
+
+.scroll-x::-webkit-scrollbar-track {
+  background: var(--surface-sunken);
   border-radius: 99px;
 }
 
