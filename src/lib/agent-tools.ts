@@ -1968,6 +1968,30 @@ export async function executeAgentTool(
         };
       }
 
+      const helpActions: AgentAction[] = entry.page
+        ? [
+            {
+              type: "navigate",
+              payload: {
+                path: entry.page,
+                label: pageLabel(entry.page),
+                auto: false,
+              },
+            },
+          ]
+        : [];
+
+      if (entry.id === "deposits" || entry.id === "wallet") {
+        helpActions.push({
+          type: "deposit",
+          payload: {
+            guide: true,
+            upiId: process.env.NEXT_PUBLIC_UPI_ID ?? "",
+            qrPath: "/payment-qr.png",
+          },
+        });
+      }
+
       return {
         ok: true,
         summary: `Platform help: ${entry.id}.`,
@@ -1976,18 +2000,7 @@ export async function executeAgentTool(
           ...helpToolData(entry),
           reply: helpReply(entry, context.language),
         },
-        actions: entry.page
-          ? [
-              {
-                type: "navigate",
-                payload: {
-                  path: entry.page,
-                  label: pageLabel(entry.page),
-                  auto: false,
-                },
-              },
-            ]
-          : [],
+        actions: helpActions,
       };
     }
 

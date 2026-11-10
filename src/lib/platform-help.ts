@@ -174,14 +174,18 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
     notes: [
       b("Minimum deposit is ₹10 and maximum is ₹100,000.", "الحد الأدنى للإيداع ₹10 والأقصى ₹100,000."),
       b(
+        "UPI is the current top-up method; card payments are not supported.",
+        "طريقة الشحن الحالية هي UPI فقط؛ الدفع بالبطاقة غير مدعوم."
+      ),
+      b(
         "Each UTR can be submitted once. A rejected deposit keeps its reference, so check history before retrying.",
         "كل رقم UTR يُرسل مرة واحدة. الإيداع المرفوض يحتفظ بمرجعه، لذا راجع السجل قبل إعادة المحاولة."
       ),
     ],
     page: "/add-funds",
     keywords: [
-      /\bdeposit|add funds|top.?up|upi|utr|transaction reference\b/i,
-      /إيداع|ايداع|شحن|أضيف رصيد|اضيف رصيد|إضافة رصيد|اضافة رصيد|UPI|UTR|مرجع العملية|تحويل/,
+      /\bdeposit|add funds|top.?up|upi|utr|transaction reference|payment method|card\b/i,
+      /إيداع|ايداع|شحن|أضيف رصيد|اضيف رصيد|إضافة رصيد|اضافة رصيد|UPI|UTR|مرجع العملية|تحويل|طريقة الدفع|بطاقة/,
     ],
   },
   {

@@ -364,20 +364,33 @@ export async function runDeterministicAgent(
       const help = matchPlatformHelp(normalizedText);
 
       if (help) {
+        const helpActions: AgentAction[] = help.page
+          ? [
+              {
+                type: "navigate",
+                payload: {
+                  path: help.page,
+                  label: pageLabel(help.page),
+                  auto: false,
+                },
+              },
+            ]
+          : [];
+
+        if (help.id === "deposits" || help.id === "wallet") {
+          helpActions.push({
+            type: "deposit",
+            payload: {
+              guide: true,
+              upiId: process.env.NEXT_PUBLIC_UPI_ID ?? "",
+              qrPath: "/payment-qr.png",
+            },
+          });
+        }
+
         return {
           reply: helpReply(help, language),
-          actions: help.page
-            ? [
-                {
-                  type: "navigate",
-                  payload: {
-                    path: help.page,
-                    label: pageLabel(help.page),
-                    auto: false,
-                  },
-                },
-              ]
-            : [],
+          actions: helpActions,
           toolTrace: trace,
           model: "deterministic",
         };
