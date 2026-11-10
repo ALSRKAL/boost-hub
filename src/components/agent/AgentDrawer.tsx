@@ -116,8 +116,8 @@ export function AgentDrawer() {
       ar: "رشّح لي أفضل خدمة متابعين إنستغرام بضمان",
     },
     {
-      en: "Check my link & prepare an order",
-      ar: "افحص رابطي وجهّز لي طلباً",
+      en: "Instagram post likes for 20 rupees",
+      ar: "أشتي لايكات على بوست إنستقرام بعشرين ربية",
     },
     {
       en: "Check my latest order status",
@@ -254,6 +254,7 @@ export function AgentDrawer() {
                         confirmedDrafts={confirmedDrafts}
                         isSending={isSending}
                         onNavigate={navigateTo}
+                        onSendMessage={(text) => void sendMessage(text)}
                         onUseService={(serviceId) => {
                           if (formContext.link && formContext.quantity) {
                             void prepareService(serviceId);
@@ -352,6 +353,7 @@ function ActionCard({
   isSending,
   onUseService,
   onNavigate,
+  onSendMessage,
 }: {
   action: AgentAction;
   onConfirm: (clientRequestId: string) => void;
@@ -360,6 +362,7 @@ function ActionCard({
   isSending: boolean;
   onUseService: (serviceId: string) => void;
   onNavigate: (path: string) => void;
+  onSendMessage: (text: string) => void;
 }) {
   const { language, t } = useLanguage();
   const payload = record(action.payload);
@@ -441,6 +444,106 @@ function ActionCard({
               </div>
             );
           })}
+        </div>
+      </div>
+    );
+  }
+
+  if (action.type === "order_quote") {
+    const rawServiceName = str(payload.serviceName);
+    const serviceName =
+      language === "ar" ? localizeServiceName(rawServiceName) : rawServiceName;
+    const quantity = num(payload.quantity);
+    const totalCharge = num(payload.totalCharge);
+    const rate = num(payload.rate);
+    const budget = num(payload.budget);
+    const min = num(payload.min);
+    const max = num(payload.max);
+    const missing = str(payload.missing);
+    const targetLabel = bilingual(
+      payload.targetLabel,
+      language,
+      str(payload.target)
+    );
+
+    return (
+      <div className="rounded-[var(--radius-sm)] border border-line-strong bg-surface p-3">
+        <div className="flex items-start justify-between gap-2">
+          <p className="rule-label">{t("Price quote", "عرض السعر")}</p>
+          <span className="status status-info">
+            {t("Selected", "مختارة")}
+          </span>
+        </div>
+        <p className="mt-1 text-[12.5px] font-medium leading-5 text-ink">
+          {serviceName}
+        </p>
+        <dl className="mt-2 space-y-1 text-[11px]">
+          <div className="flex justify-between gap-2">
+            <dt className="text-ink-mute">{t("Quantity", "الكمية")}</dt>
+            <dd className="num-sm text-ink">
+              {quantity > 0
+                ? formatNumber(quantity)
+                : `${formatNumber(min)}–${formatNumber(max)}`}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-ink-mute">{t("Rate", "السعر")}</dt>
+            <dd className="num-sm text-ink">
+              {formatCurrency(rate)}{" "}
+              {t("per 1,000", "لكل 1000")}
+            </dd>
+          </div>
+          <div className="flex justify-between gap-2">
+            <dt className="text-ink-mute">{t("Total", "الإجمالي")}</dt>
+            <dd className="num-sm font-semibold text-ink">
+              {quantity > 0
+                ? formatCurrency(totalCharge)
+                : t("Depends on quantity", "حسب الكمية")}
+            </dd>
+          </div>
+          {budget > 0 ? (
+            <div className="flex justify-between gap-2">
+              <dt className="text-ink-mute">{t("Budget", "الميزانية")}</dt>
+              <dd className="num-sm text-ink">{formatCurrency(budget)}</dd>
+            </div>
+          ) : null}
+          <div className="flex justify-between gap-2">
+            <dt className="text-ink-mute">{t("Target", "الهدف")}</dt>
+            <dd className="min-w-0 text-end text-[10.5px] text-ink">
+              {targetLabel}
+            </dd>
+          </div>
+        </dl>
+
+        {missing === "link" ? (
+          <p className="mt-2 rounded-[var(--radius-xs)] border border-line bg-subtle px-2.5 py-2 text-[11px] leading-5 text-ink-soft">
+            {t(
+              "Send the target link in the chat to continue.",
+              "أرسل رابط الهدف في المحادثة للمتابعة."
+            )}
+          </p>
+        ) : missing === "quantity" ? (
+          <p className="mt-2 rounded-[var(--radius-xs)] border border-line bg-subtle px-2.5 py-2 text-[11px] leading-5 text-ink-soft">
+            {t(
+              "Write the quantity, or your budget in rupees, and I will calculate it.",
+              "اكتب الكمية أو ميزانيتك بالروبية وأنا أحسبها لك."
+            )}
+          </p>
+        ) : (
+          <p className="mt-2 rounded-[var(--radius-xs)] border border-[#c4e2cf] bg-positive-soft px-2.5 py-2 text-[11px] leading-5 text-positive">
+            {t("Ready to prepare.", "جاهز للتجهيز.")}
+          </p>
+        )}
+
+        <div className="mt-2 flex justify-end">
+          <Button
+            size="sm"
+            variant="secondary"
+            onClick={() => onSendMessage(t("Show me another service", "غيرها"))}
+            disabled={isSending}
+          >
+            {t("Another service", "خدمة أخرى")}
+          </Button>
         </div>
       </div>
     );

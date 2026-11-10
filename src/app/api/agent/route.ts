@@ -15,6 +15,10 @@ import {
   runDeterministicAgent,
   shouldUseDeterministicRouter,
 } from "@/lib/agent-fallback-router";
+import {
+  agentSessionForPrompt,
+  getAgentSession,
+} from "@/lib/agent-session";
 import { isLanguage, type Language } from "@/lib/i18n";
 import { localize, readApiLanguage } from "@/lib/api-language";
 import { localizeServiceName } from "@/lib/service-localization";
@@ -371,10 +375,21 @@ export async function POST(request: NextRequest) {
     uid: auth.uid,
     email: auth.email,
     language,
+    balance: auth.balance,
+    sessionId: conversationId,
     conversationId: `${conversationId}:${requestNonce}`,
     page,
     pageContext,
   };
+
+  const activeSession = await getAgentSession(auth.uid, conversationId);
+  const hasOrderContext = Boolean(
+    activeSession.serviceId ||
+      activeSession.link ||
+      activeSession.lastDraftId ||
+      activeSession.budget ||
+      activeSession.quantity
+  );
 
   let config: AiConfig | null = null;
 
@@ -545,9 +560,14 @@ export async function POST(request: NextRequest) {
     language,
     page,
     context,
+    session: activeSession,
   };
 
-  if (shouldUseDeterministicRouter(deterministicMessages.at(-1)?.content ?? "")) {
+  if (
+    shouldUseDeterministicRouter(deterministicMessages.at(-1)?.content ?? "", {
+      hasOrderContext,
+    })
+  ) {
     const deterministic = await runDeterministicAgent(deterministicInput);
 
     return NextResponse.json({
@@ -570,6 +590,7 @@ export async function POST(request: NextRequest) {
     page,
     balance: auth.balance,
     pageContext,
+    activeOrder: agentSessionForPrompt(activeSession),
   });
 
   const conversation: ChatMessage[] = [

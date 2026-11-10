@@ -340,28 +340,13 @@ export function AgentProvider({ children }: { children: ReactNode }) {
 
   const prepareService = useCallback(
     async (serviceId: string) => {
-      if (!formContext.link || !formContext.quantity) {
-        await sendMessage(
-          language === "ar"
-            ? `استخدم الخدمة ${serviceId}. أحتاج رابط الهدف والكمية أولًا.`
-            : `Use service ${serviceId}. I need the target link and quantity first.`
-        );
-        return;
-      }
-
-      await postAction(
-        {
-          type: "prepare_order",
-          serviceId,
-          link: formContext.link,
-          quantity: formContext.quantity,
-        },
+      await sendMessage(
         language === "ar"
-          ? "تعذر تجهيز الطلب."
-          : "The order could not be prepared."
+          ? `أريد الخدمة ${serviceId}`
+          : `I want service ${serviceId}`
       );
     },
-    [formContext.link, formContext.quantity, language, postAction, sendMessage]
+    [language, sendMessage]
   );
 
   const requestOrderAction = useCallback(

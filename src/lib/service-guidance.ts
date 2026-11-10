@@ -378,13 +378,24 @@ export function detectServiceTarget(service: {
   category: string;
   type: string;
 }): ServiceTarget {
-  const haystack = `${service.name} ${service.category} ${service.type}`;
+  // The service name is the reliable signal. Provider categories often contain
+  // promo words such as "Diwali Sale is Live" that must not turn every service
+  // in the category into a live-stream service.
+  const name = service.name;
 
-  if (STORY_PATTERN.test(haystack)) return "story";
-  if (LIVE_PATTERN.test(haystack)) return "live";
-  if (PROFILE_PATTERN.test(haystack)) return "profile";
-  if (/\b(plays?|streams?|listeners?)\b/i.test(haystack)) return "track";
-  if (POST_PATTERN.test(haystack)) return "post";
+  if (STORY_PATTERN.test(name)) return "story";
+  if (LIVE_PATTERN.test(name)) return "live";
+  if (PROFILE_PATTERN.test(name)) return "profile";
+  if (/\b(plays?|streams?|listeners?)\b/i.test(name)) return "track";
+  if (POST_PATTERN.test(name)) return "post";
+
+  const metadata = `${service.category} ${service.type}`;
+
+  if (STORY_PATTERN.test(metadata)) return "story";
+  if (LIVE_PATTERN.test(metadata)) return "live";
+  if (PROFILE_PATTERN.test(metadata)) return "profile";
+  if (/\b(plays?|streams?|listeners?)\b/i.test(metadata)) return "track";
+  if (POST_PATTERN.test(metadata)) return "post";
 
   return "unknown";
 }

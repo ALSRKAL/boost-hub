@@ -212,8 +212,8 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
     ],
     page: "/add-funds",
     keywords: [
-      /\bdeposit|add funds|top.?up|upi|utr|transaction reference|payment method|card|crypto|bitcoin\b/i,
-      /إيداع|ايداع|شحن|أضيف رصيد|اضيف رصيد|إضافة رصيد|اضافة رصيد|UPI|UTR|مرجع العملية|تحويل|طريقة الدفع|بطاقة|عملات|رقمية|بيتكوين/,
+      /\bdeposit|add funds|top.?up|upi|utr|transaction reference|payment method|card|crypto|bitcoin|pay\b/i,
+      /إيداع|ايداع|شحن|أضيف رصيد|اضيف رصيد|إضافة رصيد|اضافة رصيد|UPI|UTR|مرجع العملية|تحويل|طريقة الدفع|ادفع|أدفع|دفع|بطاقة|عملات|رقمية|بيتكوين/,
     ],
   },
   {
