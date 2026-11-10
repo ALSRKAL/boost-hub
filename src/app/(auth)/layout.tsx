@@ -30,15 +30,17 @@ const FACTS = [
 ];
 
 export default function AuthLayout({ children }: { children: React.ReactNode }) {
-  const { user, loading } = useAuth();
+  const { user, userProfile, loading } = useAuth();
   const { language, t } = useLanguage();
   const router = useRouter();
 
   useEffect(() => {
-    if (!loading && user) {
-      router.replace("/dashboard");
-    }
-  }, [user, loading, router]);
+    if (loading || !user || !userProfile) return;
+
+    router.replace(
+      userProfile.languageChosen === false ? "/welcome" : "/dashboard"
+    );
+  }, [user, userProfile, loading, router]);
 
   if (loading) {
     return (
