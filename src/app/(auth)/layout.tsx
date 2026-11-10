@@ -50,7 +50,13 @@ export default function AuthLayout({ children }: { children: React.ReactNode }) 
     );
   }
 
-  if (user) return null;
+  if (user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-canvas">
+        <LoadingSpinner size="lg" />
+      </div>
+    );
+  }
 
   return (
     <main className="min-h-screen bg-canvas lg:grid lg:grid-cols-[minmax(0,1fr)_minmax(420px,540px)]">
