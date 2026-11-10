@@ -52,6 +52,10 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
         "Ask the assistant anything about the panel in Arabic or English.",
         "اسأل المساعد عن أي شيء في اللوحة بالعربية أو الإنجليزية."
       ),
+      b(
+        "If a detail is not available here, the assistant should say so and direct you to support instead of guessing.",
+        "إذا لم تتوفر معلومة معينة، يجب أن يوضح المساعد ذلك ويوجهك إلى الدعم بدل التخمين."
+      ),
     ],
     page: "/dashboard",
     keywords: [],
@@ -83,6 +87,14 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
         "Do not submit the same link and service twice while an order is active.",
         "لا ترسل نفس الرابط ونفس الخدمة مرتين أثناء وجود طلب نشط."
       ),
+      b(
+        "The charge is deducted when the order is created; the provider then starts processing it.",
+        "يُخصم المبلغ عند إنشاء الطلب، ثم يبدأ المزود معالجته."
+      ),
+      b(
+        "The target link cannot be changed after submission. If needed, cancel the order when supported and place a new one.",
+        "لا يمكن تغيير رابط الهدف بعد الإرسال. عند الحاجة، ألغِ الطلب إن كان الإلغاء مدعومًا ثم أنشئ طلبًا جديدًا."
+      ),
     ],
     page: "/new-order",
     keywords: [
@@ -112,6 +124,14 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
       b(
         "The displayed price is the customer price. There are no hidden fees at checkout.",
         "السعر المعروض هو سعر العميل. لا توجد رسوم مخفية عند الدفع."
+      ),
+      b(
+        "Each service has its own minimum and maximum quantity; both are shown on the service card.",
+        "لكل خدمة حد أدنى وأقصى للكمية، ويظهران في بطاقة الخدمة."
+      ),
+      b(
+        "There is no separate bulk discount unless the service itself shows a different rate.",
+        "لا يوجد خصم إضافي للكميات الكبيرة إلا إذا كانت الخدمة نفسها تعرض سعرًا مختلفًا."
       ),
     ],
     page: "/services",
@@ -329,6 +349,12 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
       b("If the note says awaiting provider refund, no action is needed; it updates automatically.", "إذا كانت الملاحظة «بانتظار استرداد المزود»، لا تحتاج إجراءً؛ تتحدث تلقائيًا."),
       b("If the amount is missing after confirmation, contact support with the order ID.", "إذا لم يصل المبلغ بعد التأكيد، تواصل مع الدعم مع رقم الطلب."),
     ],
+    notes: [
+      b(
+        "Refunds return to the panel wallet, not directly to the bank or UPI app.",
+        "الاسترداد يعود إلى محفظة اللوحة، وليس مباشرة إلى البنك أو تطبيق UPI."
+      ),
+    ],
     page: "/orders",
     keywords: [/\brefund|money back\b/i, /استرداد|مسترد|استرجاع|فلوسي|المبلغ/],
   },
@@ -391,6 +417,16 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
       b("Use the EN / ع toggle in the header to change the language.", "استخدم مفتاح EN / ع في الهيدر لتغيير اللغة."),
       b("Open the account menu in the header to sign out.", "افتح قائمة الحساب في الهيدر لتسجيل الخروج."),
     ],
+    notes: [
+      b(
+        "A panel account is required to place orders and add funds.",
+        "يلزم وجود حساب في اللوحة لإنشاء الطلبات وإضافة الرصيد."
+      ),
+      b(
+        "For account deletion or an email change, contact support.",
+        "لحذف الحساب أو تغيير البريد الإلكتروني، تواصل مع الدعم."
+      ),
+    ],
     page: "/dashboard",
     keywords: [/\baccount|password|language|sign out|logout\b/i, /حساب|كلمة المرور|اللغة|لغة|خروج|تسجيل الخروج/],
   },
@@ -447,6 +483,12 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
       b("Do not change the username or delete the post during delivery.", "لا تغيّر اسم المستخدم أو تحذف المنشور أثناء التنفيذ."),
       b("Do not share your panel password with anyone.", "لا تشارك كلمة مرور اللوحة مع أي شخص."),
       b("Wait for the current order to finish before ordering the same link again.", "انتظر انتهاء الطلب الحالي قبل طلب نفس الرابط مرة أخرى."),
+    ],
+    notes: [
+      b(
+        "No service can promise an absolute result; refill covers drops only when the service includes a refill guarantee.",
+        "لا توجد خدمة تضمن نتيجة مطلقة؛ التعويض يغطي النقصان فقط عندما تشمل الخدمة ضمان تعويض."
+      ),
     ],
     page: "/new-order",
     keywords: [/\bsafe|safety|scam|password|public\b/i, /أمان|امان|احتيال|نصب|كلمة المرور|عام|آمن/],
