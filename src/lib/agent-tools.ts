@@ -1968,18 +1968,7 @@ export async function executeAgentTool(
         };
       }
 
-      const helpActions: AgentAction[] = entry.page
-        ? [
-            {
-              type: "navigate",
-              payload: {
-                path: entry.page,
-                label: pageLabel(entry.page),
-                auto: false,
-              },
-            },
-          ]
-        : [];
+      const helpActions: AgentAction[] = [];
 
       if (entry.id === "deposits" || entry.id === "wallet") {
         helpActions.push({
@@ -1988,6 +1977,17 @@ export async function executeAgentTool(
             guide: true,
             upiId: process.env.NEXT_PUBLIC_UPI_ID ?? "",
             qrPath: "/payment-qr.png",
+          },
+        });
+      }
+
+      if (entry.page) {
+        helpActions.push({
+          type: "navigate",
+          payload: {
+            path: entry.page,
+            label: pageLabel(entry.page),
+            auto: false,
           },
         });
       }

@@ -488,8 +488,18 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
       b("Search by service name, ID, or category.", "ابحث باسم الخدمة أو المعرف أو القسم."),
       b("Open the service to see its exact link format and guarantee.", "افتح الخدمة لعرض صيغة الرابط والضمان."),
     ],
+    notes: [
+      b(
+        "Supported platforms include Instagram, TikTok, YouTube, X/Twitter, Facebook, Telegram, WhatsApp, Spotify, Snapchat, LinkedIn, Discord, and website traffic.",
+        "المنصات المدعومة تشمل إنستغرام وتيك توك ويوتيوب وإكس/تويتر وفيسبوك وتيليجرام وواتساب وسبوتيفاي وسناب شات ولينكدإن وديسكورد وزيارات المواقع."
+      ),
+      b(
+        "The average delivery time on each service is an estimate; the actual time can vary with the provider.",
+        "متوسط وقت التنفيذ المعروض لكل خدمة تقديري، وقد يختلف الوقت الفعلي حسب المزود."
+      ),
+    ],
     page: "/services",
-    keywords: [/\bservices?|catalog|categor(y|ies)\b/i, /خدمات|خدمة|كتالوج|قسم|أقسام|اقسام/],
+    keywords: [/\bservices?|catalog|categor(y|ies)|platforms? supported|which platforms\b/i, /خدمات|خدمة|كتالوج|قسم|أقسام|اقسام|منصات|المنصات المدعومة/],
   },
 ];
 
