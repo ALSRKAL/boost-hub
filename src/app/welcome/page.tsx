@@ -2,11 +2,9 @@
 
 import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
-import { doc, setDoc } from "firebase/firestore";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
-import { COLLECTIONS } from "@/lib/constants";
-import { getFirebaseDb, isFirebaseConfigured } from "@/lib/firebase";
+import { saveLanguagePreference } from "@/lib/user-preferences";
 import LoadingSpinner from "@/components/ui/LoadingSpinner";
 import Icon from "@/components/ui/Icon";
 
@@ -62,15 +60,7 @@ export default function WelcomePage() {
     setLanguage(language);
 
     try {
-      if (isFirebaseConfigured) {
-        await setDoc(
-          doc(getFirebaseDb(), COLLECTIONS.users, user.uid),
-          { preferredLanguage: language, languageChosen: true },
-          { merge: true }
-        );
-      }
-    } catch (error) {
-      console.error("Failed to save the language preference:", error);
+      await saveLanguagePreference(language);
     } finally {
       router.replace("/dashboard");
     }

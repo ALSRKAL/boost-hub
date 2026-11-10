@@ -14,6 +14,7 @@ import {
 } from "@/lib/constants";
 import Icon from "@/components/ui/Icon";
 import Button from "@/components/ui/Button";
+import { saveLanguagePreference } from "@/lib/user-preferences";
 
 function getCurrentLabel(pathname: string, language: "en" | "ar"): string {
   const allItems = [...NAV_ITEMS, ...ADMIN_NAV_ITEMS];
@@ -77,6 +78,11 @@ export default function Header({ onOpenNav }: { onOpenNav: () => void }) {
     }
   }
 
+  function changeLanguage(next: "ar" | "en") {
+    setLanguage(next);
+    void saveLanguagePreference(next);
+  }
+
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-canvas">
       <div className="flex h-14 items-center justify-between gap-3 px-4 sm:px-6 lg:px-8">
@@ -122,7 +128,7 @@ export default function Header({ onOpenNav }: { onOpenNav: () => void }) {
           >
             <button
               type="button"
-              onClick={() => setLanguage("en")}
+              onClick={() => changeLanguage("en")}
               aria-pressed={language === "en"}
               aria-label={t("Switch to English", "التبديل إلى الإنجليزية")}
               className={`flex h-6 min-w-7 items-center justify-center rounded-[var(--radius-xs)] px-1.5 text-[10.5px] font-semibold transition-colors ${
@@ -135,7 +141,7 @@ export default function Header({ onOpenNav }: { onOpenNav: () => void }) {
             </button>
             <button
               type="button"
-              onClick={() => setLanguage("ar")}
+              onClick={() => changeLanguage("ar")}
               aria-pressed={language === "ar"}
               aria-label={t("Switch to Arabic", "التبديل إلى العربية")}
               className={`flex h-6 min-w-7 items-center justify-center rounded-[var(--radius-xs)] px-1.5 text-[11px] font-semibold transition-colors ${
