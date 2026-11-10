@@ -156,6 +156,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     const key = `smm:language-synced:${user.uid}`;
 
     try {
+      if (window.sessionStorage.getItem("smm:language-manual")) return;
       if (window.sessionStorage.getItem(key)) return;
       window.sessionStorage.setItem(key, "1");
     } catch {

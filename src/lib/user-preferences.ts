@@ -9,6 +9,12 @@ export async function saveLanguagePreference(
   language: Language
 ): Promise<boolean> {
   try {
+    window.sessionStorage.setItem("smm:language-manual", "1");
+  } catch {
+    // sessionStorage can be unavailable in locked-down browsers.
+  }
+
+  try {
     const user = getFirebaseAuth().currentUser;
 
     if (!user) return false;

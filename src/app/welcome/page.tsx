@@ -127,9 +127,9 @@ export default function WelcomePage() {
                       <LoadingSpinner size="sm" />
                     ) : (
                       <Icon
-                        name="chevron-left"
+                        name="chevron-right"
                         size={17}
-                        className="mt-1 text-ink-mute transition-transform group-hover:-translate-x-0.5 rtl:rotate-180"
+                        className="mt-1 text-ink-mute transition-transform group-hover:translate-x-0.5 rtl:rotate-180"
                       />
                     )}
                   </span>

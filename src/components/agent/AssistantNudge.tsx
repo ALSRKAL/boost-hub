@@ -126,7 +126,16 @@ export function AssistantNudge() {
     void sendMessage(prompt);
   }
 
-  if (!visible || open) return null;
+  if (
+    !user ||
+    userProfile?.role === "admin" ||
+    !ELIGIBLE_PATHS.has(pathname) ||
+    !visible ||
+    open ||
+    (pathname === "/new-order" && Boolean(formContext.serviceId))
+  ) {
+    return null;
+  }
 
   const ar = language === "ar";
   const prompts = ar
