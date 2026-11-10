@@ -136,8 +136,8 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
     ],
     page: "/services",
     keywords: [
-      /\bprice|pricing|rate|cost|charge|how much\b/i,
-      /سعر|أسعار|اسعار|تكلفة|كم سعر|كم يكلف|حساب السعر|المبلغ/,
+      /\bprice|pricing|rate|cost|charge|how much|discount|bulk\b/i,
+      /سعر|أسعار|اسعار|تكلفة|كم سعر|كم يكلف|حساب السعر|المبلغ|خصم|خصومات|كميات كبيرة/,
     ],
   },
   {
@@ -163,8 +163,16 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
         "يجب أن يبقى الحساب أو المنشور أو الستوري أو البث عامًا طوال فترة التنفيذ."
       ),
       b(
+        "If the account or content is private, delivery can fail or be rejected; make it public before ordering.",
+        "إذا كان الحساب أو المحتوى خاصًا، قد يفشل التنفيذ أو يُرفض؛ اجعله عامًا قبل الطلب."
+      ),
+      b(
         "For Instagram followers, turn off Settings → Follow and invite friends → Flag for review.",
         "لمتابعي إنستغرام، أوقف: الإعدادات ← المتابعة ودعوة الأصدقاء ← تمييز للمراجعة."
+      ),
+      b(
+        "The target link cannot be changed after submission. If needed, cancel the order when supported and place a new one.",
+        "لا يمكن تغيير رابط الهدف بعد الإرسال. عند الحاجة، ألغِ الطلب إن كان الإلغاء مدعومًا ثم أنشئ طلبًا جديدًا."
       ),
     ],
     page: "/new-order",
@@ -194,8 +202,8 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
     notes: [
       b("Minimum deposit is ₹10 and maximum is ₹100,000.", "الحد الأدنى للإيداع ₹10 والأقصى ₹100,000."),
       b(
-        "UPI is the current top-up method; card payments are not supported.",
-        "طريقة الشحن الحالية هي UPI فقط؛ الدفع بالبطاقة غير مدعوم."
+        "UPI is the current top-up method; card and crypto payments are not supported.",
+        "طريقة الشحن الحالية هي UPI فقط؛ الدفع بالبطاقة أو العملات الرقمية غير مدعوم."
       ),
       b(
         "Each UTR can be submitted once. A rejected deposit keeps its reference, so check history before retrying.",
@@ -204,8 +212,8 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
     ],
     page: "/add-funds",
     keywords: [
-      /\bdeposit|add funds|top.?up|upi|utr|transaction reference|payment method|card\b/i,
-      /إيداع|ايداع|شحن|أضيف رصيد|اضيف رصيد|إضافة رصيد|اضافة رصيد|UPI|UTR|مرجع العملية|تحويل|طريقة الدفع|بطاقة/,
+      /\bdeposit|add funds|top.?up|upi|utr|transaction reference|payment method|card|crypto|bitcoin\b/i,
+      /إيداع|ايداع|شحن|أضيف رصيد|اضيف رصيد|إضافة رصيد|اضافة رصيد|UPI|UTR|مرجع العملية|تحويل|طريقة الدفع|بطاقة|عملات|رقمية|بيتكوين/,
     ],
   },
   {
@@ -447,7 +455,7 @@ export const PLATFORM_HELP: PlatformHelpEntry[] = [
       b("If money is involved, include the charge amount and the refund note.", "إذا كان الأمر متعلقًا بالمال، أرفق المبلغ وملاحظة الاسترداد."),
     ],
     page: "/dashboard",
-    keywords: [/\bsupport|contact|whatsapp|help me\b/i, /دعم|تواصل|واتساب|مساعدة|مشكلة/],
+    keywords: [/\bsupport|contact|whatsapp|help me\b/i, /الدعم|دعم فني|تواصل|واتساب|مساعدة/],
   },
   {
     id: "navigation",
@@ -549,13 +557,37 @@ export function getPlatformHelp(id: string): PlatformHelpEntry | null {
   return PLATFORM_HELP.find((entry) => entry.id === id) ?? null;
 }
 
+const HELP_PRIORITY = [
+  "cancel",
+  "refill",
+  "refunds",
+  "deposits",
+  "wallet",
+  "pricing",
+  "dripfeed",
+  "comments",
+  "links",
+  "ordering",
+  "troubleshooting",
+  "statuses",
+  "orders",
+  "account",
+  "support",
+  "navigation",
+  "safety",
+  "services",
+  "general",
+];
+
 export function matchPlatformHelp(text: string): PlatformHelpEntry | null {
   const value = text.trim();
 
   if (!value) return null;
 
-  for (const entry of PLATFORM_HELP) {
-    if (entry.keywords.some((pattern) => pattern.test(value))) {
+  for (const id of HELP_PRIORITY) {
+    const entry = PLATFORM_HELP.find((item) => item.id === id);
+
+    if (entry?.keywords.some((pattern) => pattern.test(value))) {
       return entry;
     }
   }
