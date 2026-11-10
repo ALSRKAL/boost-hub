@@ -13,6 +13,7 @@ import { usePathname, useRouter } from "next/navigation";
 import { useAuth } from "@/context/AuthContext";
 import { useLanguage } from "@/context/LanguageContext";
 import { AgentDrawer } from "@/components/agent/AgentDrawer";
+import { AssistantNudge } from "@/components/agent/AssistantNudge";
 import type { AgentAction } from "@/lib/agent-tools";
 
 export interface AgentFormPatch {
@@ -425,6 +426,7 @@ export function AgentProvider({ children }: { children: ReactNode }) {
   return (
     <AgentContext.Provider value={value}>
       {children}
+      <AssistantNudge key={pathname} />
       <AgentDrawer />
     </AgentContext.Provider>
   );

@@ -119,7 +119,7 @@ export default function RegisterPage() {
       setLoading(true);
       setError(null);
       await signUp(trimmedEmail, password);
-      router.replace("/dashboard");
+      router.replace("/welcome");
     } catch (err: unknown) {
       setError(mapRegisterError(err instanceof Error ? err.message : "", language));
     } finally {
@@ -133,8 +133,8 @@ export default function RegisterPage() {
     try {
       setLoading(true);
       setError(null);
-      await signInWithGoogle();
-      router.replace("/dashboard");
+      const result = await signInWithGoogle();
+      router.replace(result.isNewUser ? "/welcome" : "/dashboard");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "";
       if (!message.includes("popup-closed")) {

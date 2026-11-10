@@ -20,6 +20,10 @@ export function readApiLanguage(
 
   if (isLanguage(headerLanguage)) return headerLanguage;
 
+  const queryLanguage = request.nextUrl.searchParams.get("lang");
+
+  if (isLanguage(queryLanguage)) return queryLanguage;
+
   const acceptLanguage = request.headers.get("accept-language") ?? "";
 
   if (/(^|,)\s*ar\b/i.test(acceptLanguage)) return "ar";

@@ -159,8 +159,8 @@ export default function LoginPage() {
     try {
       setLoading(true);
       setError(null);
-      await signInWithGoogle();
-      router.replace("/dashboard");
+      const result = await signInWithGoogle();
+      router.replace(result.isNewUser ? "/welcome" : "/dashboard");
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : "";
       if (!message.includes("popup-closed")) {

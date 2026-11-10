@@ -1,11 +1,12 @@
 import type { Metadata, Viewport } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { LanguageProvider } from "@/context/LanguageContext";
 import { APP_CONFIG } from "@/lib/constants";
 import { isLanguage, LANGUAGE_COOKIE, languageDir } from "@/lib/i18n";
+import { seoForLanguage, SITE_URL } from "@/lib/seo";
 
 const plexSans = IBM_Plex_Sans({
   variable: "--font-plex-sans",
@@ -23,22 +24,101 @@ const plexMono = IBM_Plex_Mono({
 
 export async function generateMetadata(): Promise<Metadata> {
   const cookieStore = await cookies();
+  const requestHeaders = await headers();
+  const headerLanguage = requestHeaders.get("x-lang");
   const cookieLanguage = cookieStore.get(LANGUAGE_COOKIE)?.value;
-  const language = isLanguage(cookieLanguage) ? cookieLanguage : "en";
+  const language = isLanguage(headerLanguage)
+    ? headerLanguage
+    : isLanguage(cookieLanguage)
+      ? cookieLanguage
+      : null;
+  const seo = seoForLanguage(language ?? "default");
+  const locale =
+    language === "ar" ? "ar_AR" : language === "en" ? "en_US" : "ar_AR";
 
   return {
+    metadataBase: new URL(SITE_URL),
     title: {
-      default:
-        language === "ar"
-          ? `${APP_CONFIG.name} — لوحة`
-          : `${APP_CONFIG.name} — Panel`,
+      default: seo.title,
       template: `%s · ${APP_CONFIG.name}`,
     },
-    description:
-      language === "ar"
-        ? `${APP_CONFIG.name}: أنشئ الطلبات وتابع التنفيذ وأدر رصيدك.`
-        : `${APP_CONFIG.name} panel: place orders, track delivery, and manage your balance.`,
-    robots: { index: false, follow: false },
+    description: seo.description,
+    applicationName: APP_CONFIG.name,
+    generator: "Next.js",
+    keywords: [
+      "BoostHub",
+      "SMM panel",
+      "social media services",
+      "Instagram followers",
+      "TikTok views",
+      "YouTube views",
+      "Telegram members",
+      "لوحة خدمات السوشيال ميديا",
+      "متابعين إنستغرام",
+      "مشاهدات تيك توك",
+      "مشاهدات يوتيوب",
+      "أعضاء تيليجرام",
+      "خدمات سوشيال ميديا",
+    ],
+    authors: [{ name: "BoostHub", url: SITE_URL }],
+    creator: "BoostHub",
+    publisher: "BoostHub",
+    category: "social media services",
+    alternates: {
+      canonical: "/",
+      languages: {
+        ar: "/?lang=ar",
+        en: "/?lang=en",
+        "x-default": "/",
+      },
+    },
+    openGraph: {
+      type: "website",
+      siteName: APP_CONFIG.name,
+      title: seo.title,
+      description: seo.description,
+      url: "/",
+      locale,
+      alternateLocale: locale === "ar_AR" ? ["en_US"] : ["ar_AR"],
+      images: [
+        {
+          url: seo.image,
+          width: 1200,
+          height: 630,
+          alt: seo.imageAlt,
+        },
+      ],
+    },
+    twitter: {
+      card: "summary_large_image",
+      title: seo.title,
+      description: seo.description,
+      images: [seo.image],
+    },
+    icons: {
+      icon: [
+        { url: "/icon.svg", type: "image/svg+xml" },
+        { url: "/icon-192.png", sizes: "192x192", type: "image/png" },
+        { url: "/icon-512.png", sizes: "512x512", type: "image/png" },
+      ],
+      shortcut: "/favicon.ico",
+      apple: [{ url: "/apple-icon.png", sizes: "180x180", type: "image/png" }],
+    },
+    manifest: "/manifest.webmanifest",
+    robots: {
+      index: true,
+      follow: true,
+      googleBot: {
+        index: true,
+        follow: true,
+        "max-image-preview": "large",
+        "max-snippet": -1,
+        "max-video-preview": -1,
+      },
+    },
+    other: {
+      "format-detection": "telephone=no",
+    },
   };
 }
 
@@ -53,8 +133,14 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const cookieStore = await cookies();
+  const requestHeaders = await headers();
+  const headerLanguage = requestHeaders.get("x-lang");
   const cookieLanguage = cookieStore.get(LANGUAGE_COOKIE)?.value;
-  const language = isLanguage(cookieLanguage) ? cookieLanguage : "en";
+  const language = isLanguage(headerLanguage)
+    ? headerLanguage
+    : isLanguage(cookieLanguage)
+      ? cookieLanguage
+      : "en";
 
   return (
     <html

@@ -13,6 +13,7 @@ import {
   createUserWithEmailAndPassword,
   signInWithEmailAndPassword,
   signInWithPopup,
+  getAdditionalUserInfo,
   GoogleAuthProvider,
   signOut as firebaseSignOut,
   sendPasswordResetEmail,
@@ -31,6 +32,7 @@ import {
   isFirebaseConfigured,
 } from "@/lib/firebase";
 import { COLLECTIONS, USER_ROLES, type UserRole } from "@/lib/constants";
+import { useLanguage } from "@/context/LanguageContext";
 
 // ============================================================
 // Types
@@ -43,6 +45,8 @@ export interface UserProfile {
   balance: number;
   role: UserRole;
   createdAt: unknown;
+  preferredLanguage?: "ar" | "en";
+  languageChosen?: boolean;
 }
 
 interface AuthContextType {
@@ -52,7 +56,7 @@ interface AuthContextType {
   error: string | null;
   signUp: (email: string, password: string) => Promise<void>;
   signIn: (email: string, password: string) => Promise<void>;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<{ isNewUser: boolean }>;
   resetPassword: (email: string) => Promise<void>;
   logout: () => Promise<void>;
   clearError: () => void;
@@ -67,6 +71,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 const googleProvider = new GoogleAuthProvider();
 
 export function AuthProvider({ children }: { children: ReactNode }) {
+  const { language, setLanguage } = useLanguage();
   const [user, setUser] = useState<User | null>(null);
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [loading, setLoading] = useState(isFirebaseConfigured);
@@ -87,8 +92,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           balance: 0,
           role: USER_ROLES.user,
           createdAt: serverTimestamp(),
+          languageChosen: false,
         };
-        await setDoc(userRef, newProfile);
+        await setDoc(userRef, newProfile, { merge: true });
       }
     } catch (err) {
       console.error("Error ensuring user profile:", err);
@@ -140,6 +146,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [ensureUserProfile]);
 
+  // Apply the saved language preference once per browser session. A manual
+  // toggle in the same session is never overwritten.
+  useEffect(() => {
+    const preferred = userProfile?.preferredLanguage;
+
+    if (!preferred || !user?.uid || preferred === language) return;
+
+    const key = `smm:language-synced:${user.uid}`;
+
+    try {
+      if (window.sessionStorage.getItem(key)) return;
+      window.sessionStorage.setItem(key, "1");
+    } catch {
+      // sessionStorage can be unavailable in locked-down browsers.
+    }
+
+    setLanguage(preferred);
+  }, [user?.uid, userProfile?.preferredLanguage, language, setLanguage]);
+
   // ---- Auth Methods ----
 
   // These methods do not toggle the global `loading` flag: the auth listener
@@ -170,7 +195,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     try {
       const auth = getFirebaseAuth();
       setError(null);
-      await signInWithPopup(auth, googleProvider);
+      const credential = await signInWithPopup(auth, googleProvider);
+      const additional = getAdditionalUserInfo(credential);
+
+      return { isNewUser: Boolean(additional?.isNewUser) };
     } catch (err: unknown) {
       const message =
         err instanceof Error ? err.message : "Google sign in failed";
