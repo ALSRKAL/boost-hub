@@ -1,6 +1,6 @@
 import type { Metadata, Viewport } from "next";
 import { cookies, headers } from "next/headers";
-import { IBM_Plex_Mono, IBM_Plex_Sans } from "next/font/google";
+import localFont from "next/font/local";
 import "./globals.css";
 import { AuthProvider } from "@/context/AuthContext";
 import { LanguageProvider } from "@/context/LanguageContext";
@@ -8,17 +8,23 @@ import { APP_CONFIG } from "@/lib/constants";
 import { isLanguage, LANGUAGE_COOKIE, languageDir } from "@/lib/i18n";
 import { seoForLanguage, SITE_URL } from "@/lib/seo";
 
-const plexSans = IBM_Plex_Sans({
+const plexSans = localFont({
   variable: "--font-plex-sans",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  src: [
+    { path: "./fonts/IBMPlexSans-Regular.ttf", weight: "400", style: "normal" },
+    { path: "./fonts/IBMPlexSans-Medium.ttf", weight: "500", style: "normal" },
+    { path: "./fonts/IBMPlexSans-SemiBold.ttf", weight: "600", style: "normal" },
+  ],
   display: "swap",
 });
 
-const plexMono = IBM_Plex_Mono({
+const plexMono = localFont({
   variable: "--font-plex-mono",
-  subsets: ["latin"],
-  weight: ["400", "500", "600"],
+  src: [
+    { path: "./fonts/IBMPlexMono-Regular.ttf", weight: "400", style: "normal" },
+    { path: "./fonts/IBMPlexMono-Medium.ttf", weight: "500", style: "normal" },
+    { path: "./fonts/IBMPlexMono-SemiBold.ttf", weight: "600", style: "normal" },
+  ],
   display: "swap",
 });
 
