@@ -3,6 +3,7 @@ import { FieldValue } from "firebase-admin/firestore";
 import { COLLECTIONS } from "@/lib/constants";
 import { getAdminAuth, getAdminDb } from "@/lib/firebase-admin";
 import { isLanguage } from "@/lib/i18n";
+import { localize, readApiLanguage } from "@/lib/api-language";
 
 export const runtime = "nodejs";
 
@@ -13,21 +14,31 @@ function getBearerToken(authHeader: string | null): string | null {
 
 export async function POST(request: NextRequest) {
   let body: { language?: unknown };
+  const requestLanguage = readApiLanguage(request);
 
   try {
     body = (await request.json()) as { language?: unknown };
   } catch {
-    return NextResponse.json({ error: "Invalid request body." }, { status: 400 });
+    return NextResponse.json(
+      { error: localize(requestLanguage, "Invalid request body.", "طلب غير صالح.") },
+      { status: 400 }
+    );
   }
 
   const token = getBearerToken(request.headers.get("authorization"));
 
   if (!token) {
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(requestLanguage, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   if (!isLanguage(body.language)) {
-    return NextResponse.json({ error: "Invalid language." }, { status: 400 });
+    return NextResponse.json(
+      { error: localize(requestLanguage, "Invalid language.", "اللغة غير صالحة.") },
+      { status: 400 }
+    );
   }
 
   let uid: string;
@@ -37,7 +48,10 @@ export async function POST(request: NextRequest) {
     uid = decoded.uid;
   } catch (error) {
     console.error("Language preference auth failed:", error);
-    return NextResponse.json({ error: "Unauthorized." }, { status: 401 });
+    return NextResponse.json(
+      { error: localize(requestLanguage, "Unauthorized.", "يجب تسجيل الدخول للمتابعة.") },
+      { status: 401 }
+    );
   }
 
   try {
@@ -57,7 +71,13 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     console.error("Failed to save language preference:", error);
     return NextResponse.json(
-      { error: "Unable to save the language preference." },
+      {
+        error: localize(
+          requestLanguage,
+          "Unable to save the language preference.",
+          "تعذّر حفظ تفضيل اللغة."
+        ),
+      },
       { status: 500 }
     );
   }
