@@ -42,6 +42,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       });
     };
 
+    let suppressClick = false;
+    let suppressTimer = 0;
+
     const onPointerDown = (event: PointerEvent) => {
       if (!(event.target instanceof Element)) return;
       const element = event.target.closest<HTMLElement>(draggableSelector);
@@ -49,7 +52,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       if (!element || element.scrollWidth <= element.clientWidth + 1) return;
       if (
         event.target.closest(
-          "a, button, input, select, textarea, [role='button'], [role='tab']"
+          "button, input, select, textarea, [role='button'], [role='tab']"
         )
       ) {
         return;
@@ -81,11 +84,27 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       event.preventDefault();
     };
 
+    const onClickCapture = (event: MouseEvent) => {
+      if (!suppressClick) return;
+      event.preventDefault();
+      event.stopPropagation();
+      suppressClick = false;
+    };
+
     const finishDrag = () => {
       if (!active) return;
+      const wasDragged = active.dragged;
       active.element.classList.remove("is-dragging");
       document.body.style.userSelect = "";
       active = null;
+
+      if (wasDragged) {
+        suppressClick = true;
+        window.clearTimeout(suppressTimer);
+        suppressTimer = window.setTimeout(() => {
+          suppressClick = false;
+        }, 120);
+      }
     };
 
     const onResize = () => markDraggable();
@@ -97,6 +116,7 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
     document.addEventListener("pointermove", onPointerMove, { passive: false });
     document.addEventListener("pointerup", finishDrag);
     document.addEventListener("pointercancel", finishDrag);
+    document.addEventListener("click", onClickCapture, true);
     window.addEventListener("resize", onResize);
 
     return () => {
@@ -105,7 +125,9 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
       document.removeEventListener("pointermove", onPointerMove);
       document.removeEventListener("pointerup", finishDrag);
       document.removeEventListener("pointercancel", finishDrag);
+      document.removeEventListener("click", onClickCapture, true);
       window.removeEventListener("resize", onResize);
+      window.clearTimeout(suppressTimer);
       document.body.style.userSelect = "";
     };
   }, []);
